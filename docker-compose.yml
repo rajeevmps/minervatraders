@@ -1,0 +1,8 @@
+version: '3.8'
+
+services:
+  # Placeholder for services
+  # frontend:
+  #   build: ./apps/frontend
+  # backend:
+  #   build: ./apps/backend
