@@ -46,9 +46,9 @@ export const HeroSection = ({ fadeIn, stagger }: HeroSectionProps) => {
                     suppressHydrationWarning
                     className="text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto leading-relaxed"
                 >
-                    Join <span className="text-white font-semibold">10,000+ elite traders</span>{' '}
-                    getting real-time signals, institutional-grade analysis, and weekly reports
-                    directly on Telegram.
+                    <span>Join </span>
+                    <span className="text-white font-semibold">10,000+ elite traders</span>
+                    <span> getting real-time signals, institutional-grade analysis, and weekly reports directly on Telegram.</span>
                 </motion.p>
 
                 <motion.div
