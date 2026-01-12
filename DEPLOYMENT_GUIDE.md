@@ -47,17 +47,6 @@ We use **Railway** because it offers a simpler setup for Docker containers, exce
 
 ### Configuration
 
-1. **Root Directory**:
-   Go to **Settings** -> **Root Directory** and set it to `/` (default) or leave empty. Railway usually detects the Dockerfile in `apps/backend/Dockerfile`.
-   *Critical*: If Railway asks for a Dockerfile path, set it to `apps/backend/Dockerfile`.
-
-2. **Environment Variables**:
-   Go to the **Variables** tab and add the following (see Secrets Checklist below for values):
-   * `NODE_ENV`
-   * `PORT` (Set to `5000`)
-   * `FRONTEND_URL`
-   * `SUPABASE_URL`
-   * `SUPABASE_SERVICE_ROLE_KEY`
    * `SUPABASE_JWT_SECRET`
    * `RAZORPAY_KEY_ID`
    * `RAZORPAY_KEY_SECRET`
