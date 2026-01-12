@@ -1,9 +1,9 @@
 # Telegram Subscription App - Production Deployment Guide
 
 **Frontend:** Vercel  
-**Backend:** Render
+**Backend:** Railway
 
-This guide explains how to deploy the Telegram Subscription App to a production environment using **Vercel** for the frontend and **Render** for the backend.
+This guide explains how to deploy the Telegram Subscription App to a production environment using **Vercel** for the frontend and **Railway** for the backend.
 
 ---
 
@@ -16,7 +16,7 @@ Before starting, make sure you have the following:
 
 * **Accounts**
   * Vercel – [https://vercel.com](https://vercel.com)
-  * Render – [https://render.com](https://render.com)
+  * Railway – [https://railway.app](https://railway.app)
 
 * **Supabase**
   * Project URL
@@ -34,46 +34,50 @@ Before starting, make sure you have the following:
 
 ---
 
-## 2. Backend Deployment (Render)
+## 2. Backend Deployment (Railway)
 
-We use **Render** because it supports Docker and background workers/cron jobs.
+We use **Railway** because it offers a simpler setup for Docker containers, excellent uptime, and easy environment variable management.
 
-### Method A (Recommended): Blueprint – Infrastructure as Code
+### Steps
 
-1. Log in to **Render Dashboard**
-2. Click **New + → Blueprint**
-3. Connect your **GitHub repository**
-4. Render will automatically detect the `render.yaml` file in the root
-5. Confirm the service:
-   * `telegram-subscription-backend`
-6. Enter required **Environment Variables**
-   * (See Secrets Checklist below)
-7. Click **Apply**
+1. Log in to **Railway Dashboard** ([railway.app](https://railway.app)).
+2. Click **New Project** -> **Deploy from GitHub repo**.
+3. Select your **GitHub repository** (`minervatraders`).
+4. Click **Deploy Now** (it might fail initially without config, that's okay, or click "Add Variables" first).
 
-Render will automatically build and deploy your backend.
+### Configuration
 
----
+1. **Root Directory**:
+   Go to **Settings** -> **Root Directory** and set it to `/` (default) or leave empty. Railway usually detects the Dockerfile in `apps/backend/Dockerfile`.
+   *Critical*: If Railway asks for a Dockerfile path, set it to `apps/backend/Dockerfile`.
 
-### Method B: Manual Setup
+2. **Environment Variables**:
+   Go to the **Variables** tab and add the following (see Secrets Checklist below for values):
+   * `NODE_ENV`
+   * `PORT` (Set to `5000`)
+   * `FRONTEND_URL`
+   * `SUPABASE_URL`
+   * `SUPABASE_SERVICE_ROLE_KEY`
+   * `SUPABASE_JWT_SECRET`
+   * `RAZORPAY_KEY_ID`
+   * `RAZORPAY_KEY_SECRET`
+   * `RAZORPAY_WEBHOOK_SECRET`
+   * `TELEGRAM_BOT_TOKEN`
 
-1. Click **New + → Web Service**
-2. Connect your GitHub repository
-3. Configuration
-   * Runtime: **Docker**
-   * Build Context: `.` (root directory)
-   * Dockerfile Path: `apps/backend/Dockerfile`
-4. Add all **Environment Variables** manually
-5. Deploy
+3. **Networking**:
+   * Go to **Settings** -> **Networking**.
+   * Click **Generate Domain**.
+   * This gives you a public URL like `web-production-1234.up.railway.app`.
 
 ---
 
 ### Health Check
 
 After deployment, your backend URL will look like:
-`https://telegram-backend-xyz.onrender.com`
+`https://web-production-1234.up.railway.app`
 
 Verify deployment:
-`https://telegram-backend-xyz.onrender.com/health`
+`https://web-production-1234.up.railway.app/health`
 
 You should receive a healthy response.
 
@@ -109,7 +113,7 @@ Add the following:
 
 ## 4. Secrets Checklist
 
-### Backend (Render)
+### Backend (Railway)
 
 | Variable                  | Description                                        |
 | ------------------------- | -------------------------------------------------- |
@@ -130,7 +134,7 @@ Add the following:
 
 | Variable                      | Description          |
 | ----------------------------- | -------------------- |
-| `NEXT_PUBLIC_API_URL`           | Render backend URL + `/api/v1` per backend routes (e.g. `https://your-backend.onrender.com/api/v1`) |
+| `NEXT_PUBLIC_API_URL`           | Railway backend URL + `/api/v1` (e.g. `https://your-project.up.railway.app/api/v1`) |
 | `NEXT_PUBLIC_SUPABASE_URL`      | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key      |
 
@@ -143,7 +147,7 @@ Add the following:
 Both platforms automatically provide SSL certificates:
 
 * Frontend: `https://your-app.vercel.app`
-* Backend: `https://your-backend.onrender.com`
+* Backend: `https://your-app.up.railway.app`
 
 No manual SSL setup required.
 
@@ -161,14 +165,14 @@ The `infra/nginx` folder is only required when deploying to EC2, DigitalOcean, o
 ## 6. Post-Deployment Checklist
 
 ### 1. CORS
-Ensure `FRONTEND_URL` environment variable in **Render** matches your actual Vercel domain (no trailing slash).
+Ensure `FRONTEND_URL` environment variable in **Railway** matches your actual Vercel domain (no trailing slash).
 
 ### 2. Razorpay Webhook
 Update webhook URL in Razorpay Dashboard:
-`https://your-backend.onrender.com/webhook`
+`https://your-app.up.railway.app/webhook`
 
 ### 3. Telegram Bot
-Check Render logs. The bot service should show:
+Check Railway logs. The bot service should show:
 * "Polling started"
 * or "Webhook set"
 
