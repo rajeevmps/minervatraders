@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { User, LoginCredentials, RegisterCredentials } from '../services/auth.service';
+import { User, LoginCredentials } from '@repo/types';
+// RegisterCredentials can just be LoginCredentials for now as per shared types
+type RegisterCredentials = LoginCredentials;
 import { authService } from '../services/auth.service';
 
 interface AuthState {
