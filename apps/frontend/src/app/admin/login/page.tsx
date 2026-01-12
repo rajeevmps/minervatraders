@@ -23,7 +23,6 @@ export default function AdminLogin() {
         setIsLoading(true);
 
         try {
-            // 1. Authenticate with Supabase Auth
             const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
                 email,
                 password,
@@ -32,7 +31,6 @@ export default function AdminLogin() {
             if (authError) throw authError;
 
             if (authData.user) {
-                // 2. Check Admin Table existence
                 const { data: adminRecord, error: adminError } = await supabase
                     .from('admins')
                     .select('user_id')
@@ -40,26 +38,22 @@ export default function AdminLogin() {
                     .single();
 
                 if (adminError || !adminRecord) {
-                    // Not an admin - sign out immediately
                     await supabase.auth.signOut();
                     toast.error('Access denied: Insufficient privileges.');
                 } else {
-                    // Success
-                    // Manually sync store just in case, though listener usually handles it
-                    // Casting user to any to match store type if needed, or mapping fields
                     setAuth({
                         id: authData.user.id,
                         email: authData.user.email!,
-                        role: 'admin'
-                    } as any, authData.session?.access_token || '');
+                        role: 'admin' as const
+                    }, authData.session?.access_token || '');
 
                     toast.success('Welcome back, Commander');
                     router.push('/admin/dashboard');
                 }
             }
-        } catch (err: any) {
-            console.error(err);
-            toast.error(err.message || 'Authentication failed');
+        } catch (err: unknown) {
+            const error = err as { message?: string };
+            toast.error(error.message || 'Login failed');
         } finally {
             setIsLoading(false);
         }
@@ -67,7 +61,6 @@ export default function AdminLogin() {
 
     return (
         <div className="flex items-center justify-center min-h-screen relative overflow-hidden">
-            {/* Background Effects */}
             <div className="absolute inset-0 z-0">
                 <div className="absolute top-[-20%] left-[-10%] w-[500px] h-[500px] bg-primary/20 rounded-full blur-[120px]" />
                 <div className="absolute bottom-[-20%] right-[-10%] w-[500px] h-[500px] bg-indigo-600/20 rounded-full blur-[120px]" />

@@ -1,8 +1,13 @@
 import { create } from 'zustand';
 
+interface CartItem {
+    id: string;
+    [key: string]: unknown;
+}
+
 interface CartState {
-    items: any[];
-    addItem: (item: any) => void;
+    items: CartItem[];
+    addItem: (item: CartItem) => void;
     removeItem: (itemId: string) => void;
     clearCart: () => void;
 }

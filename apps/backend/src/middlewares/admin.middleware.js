@@ -2,22 +2,28 @@ const { supabase } = require('../config/db');
 
 exports.adminOnly = async (req, res, next) => {
     try {
-        if (!req.user || !req.user.id) {
-            return res.status(401).json({ message: 'Not authorized, user not found' });
+        // req.user is populated by requireAuth (JWT)
+        // JWT standard field for user ID is 'sub'
+        const userId = req.user?.sub || req.user?.id;
+
+        if (!userId) {
+            return res.status(401).json({ message: 'Not authorized, user ID missing' });
         }
 
         // Check against dedicated admins table
         const { data, error } = await supabase
             .from('admins')
             .select('user_id')
-            .eq('user_id', req.user.id)
+            .eq('user_id', userId)
             .single();
 
         if (error || !data) {
-            console.error('Admin Access Attempt Denied:', req.user.id);
+            console.error('Admin Access Attempt Denied:', userId);
             return res.status(403).json({ message: 'Access denied: Insufficient privileges' });
         }
 
+        // Additional Safety: Attach full admin record if needed
+        req.admin = data;
         next();
     } catch (error) {
         console.error('Admin Middleware Error:', error.message);

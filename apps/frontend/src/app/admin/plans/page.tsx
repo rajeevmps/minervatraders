@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { adminService } from '../../../services/admin.service';
-import { Loader2, Plus, Edit2, Trash2, Check, X, Save } from 'lucide-react';
+import { Plus, Edit2, Trash2, X, Save } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 interface Plan {

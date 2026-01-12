@@ -1,7 +1,7 @@
 import api from './api';
 
 export const orderService = {
-    createOrder: async (orderData: any) => {
+    createOrder: async (orderData: Record<string, unknown>) => {
         const response = await api.post('/orders', orderData);
         return response.data;
     },

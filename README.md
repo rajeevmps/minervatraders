@@ -4,8 +4,8 @@ MinervaTraders is a full-stack SaaS platform designed to automate premium Telegr
 
 ## 🚀 Features
 
-*   ** automated Membership Management**: Users get instant access to Telegram channels upon payment and are automatically removed when subscriptions expire.
-*   **Secure Authentication**: Powered by Supabase Auth (Email/Password & Social Login ready).
+*   **Automated Membership Management**: Users get instant access to Telegram channels upon payment and are automatically removed when subscriptions expire.
+*   **Secure Authentication**: Unified authentication powered by Supabase Auth (JWT) across Frontend and Backend.
 *   **Modern UI/UX**: Built with Next.js 14, Tailwind CSS, and Framer Motion for a premium, glassmorphism aesthetic.
 *   **Admin Portal**: A powerful dashboard for administrators to:
     *   Manage Users (Add, Delete, Modify Roles).
@@ -14,14 +14,15 @@ MinervaTraders is a full-stack SaaS platform designed to automate premium Telegr
     *   Configure System Settings.
 *   **Payment Integration**: Seamless integration with Razorpay for handling subscriptions.
 *   **Role-Based Access Control**: Strict separation between User and Admin routes.
+*   **Robust Validation**: Zod-based request validation on the backend.
 
 ## 🛠️ Tech Stack
 
 ### Frontend (`apps/frontend`)
 *   **Framework**: Next.js 14 (App Router)
+*   **Language**: TypeScript
 *   **Styling**: Tailwind CSS, Framer Motion
 *   **State Management**: Zustand
-*   **Icons**: Lucide React
 *   **HTTP Client**: Axios
 *   **UI Components**: Custom Glassmorphism System
 
@@ -29,10 +30,17 @@ MinervaTraders is a full-stack SaaS platform designed to automate premium Telegr
 *   **Runtime**: Node.js
 *   **Framework**: Express.js
 *   **Database**: PostgreSQL (via Supabase)
-*   **Authentication**: Supabase Auth
+*   **Authentication**: Supabase Auth (JWT Verification)
+*   **Validation**: Zod
 *   **Payment**: Razorpay SDK
-*   **Scheduling**: node-cron (for checking expired subscriptions)
-*   **Logging**: Winston
+*   **Scheduling**: node-cron
+*   **Logging**: Winston, Morgan
+
+### Shared & DevOps
+*   **Monorepo**: TurboRepo
+*   **Shared Packages**: `@repo/types` (TypeScript Interfaces)
+*   **Code Quality**: ESLint, Prettier
+*   **Hooks**: Husky, Lint-Staged
 
 ## 📂 Project Structure
 
@@ -42,9 +50,10 @@ This project is organized as a monorepo using **TurboRepo**.
 .
 ├── apps/
 │   ├── backend/    # Express.js API Server
-│   └── frontend/   # Next.js Client Application
-├── infra/          # Infrastructure & Database Config
-└── packages/       # Shared configurations (Optional)
+│   └── frontend/   # Next.js Client Application (TypeScript)
+├── packages/       # Shared reusable packages
+│   └── types/      # Shared TypeScript interfaces (@repo/types)
+└── infra/          # Infrastructure & Database Config
 ```
 
 ## ⚡ Getting Started
@@ -68,6 +77,11 @@ This project is organized as a monorepo using **TurboRepo**.
     npm install
     ```
 
+3.  **Prepare Git Hooks:**
+    ```bash
+    npm run prepare
+    ```
+
 ### Environment Configuration
 
 You need to configure environment variables for both the backend and frontend.
@@ -77,12 +91,13 @@ Create a `.env` file in the `apps/backend` directory:
 ```env
 PORT=4000
 SUPABASE_URL=your_supabase_project_url
-SUPABASE_SERVICE_ROLE_KEY=your_supabase_service_role_key
+SUPABASE_JWT_SECRET=your_supabase_jwt_secret 
 RAZORPAY_KEY_ID=your_razorpay_key_id
 RAZORPAY_KEY_SECRET=your_razorpay_key_secret
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_CHAT_ID=your_channel_id
 FRONTEND_URL=http://localhost:3000
+NODE_ENV=development
 ```
 
 **2. Frontend (`apps/frontend/.env.local`):**
@@ -104,6 +119,19 @@ npm run dev
 *   **Frontend**: Open [http://localhost:3000](http://localhost:3000)
 *   **Backend API**: Running at [http://localhost:4000](http://localhost:4000)
 
+### Code Quality Scripts
+
+```bash
+# Run linting
+npm run lint
+
+# Fix linting errors
+npm run lint:fix
+
+# Format code
+npm run format
+```
+
 ## 🛡️ Admin Portal
 
 The project includes a secluded Admin Portal for managing the platform.
@@ -111,16 +139,12 @@ The project includes a secluded Admin Portal for managing the platform.
 *   **URL**: [http://localhost:3000/admin/login](http://localhost:3000/admin/login)
 *   **Access**: Requires a user account with the `admin` role in the `admins` table in Supabase.
 
-**Key Admin Features:**
-*   **User Management**: create, view, and delete users.
-*   **Subscription Oversight**: See active subscriptions and manually intervene.
-*   **Settings**: Tweak platform configurations.
-
 ## 🤝 Contributing
 
 1.  Fork the repository.
 2.  Create a new feature branch (`git checkout -b feature/AmazingFeature`).
 3.  Commit your changes (`git commit -m 'Add some AmazingFeature'`).
+    *   *Note: Husky will run pre-commit checks to ensure code quality.*
 4.  Push to the branch (`git push origin feature/AmazingFeature`).
 5.  Open a Pull Request.
 

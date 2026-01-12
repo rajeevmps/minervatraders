@@ -14,12 +14,8 @@ exports.createOrder = async (amount, currency = 'INR', receipt) => {
         receipt: receipt || `receipt_${Date.now()}`,
     };
 
-    try {
-        const order = await razorpay.orders.create(options);
-        return order;
-    } catch (error) {
-        throw error;
-    }
+    const order = await razorpay.orders.create(options);
+    return order;
 };
 
 exports.verifyPaymentSignature = (orderId, paymentId, signature) => {

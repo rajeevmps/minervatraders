@@ -20,7 +20,7 @@ export default function ContactPage() {
                         <div>
                             <h1 className="text-4xl font-bold text-white mb-4">Get in Touch</h1>
                             <p className="text-gray-400 text-lg">
-                                Have questions about our premium plans? Need help with support? We're here for you.
+                                Have questions about our premium plans? Need help with support? We&apos;re here for you.
                             </p>
                         </div>
 

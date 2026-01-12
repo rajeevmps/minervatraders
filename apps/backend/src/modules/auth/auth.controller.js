@@ -1,22 +1,27 @@
 const authService = require('./auth.service');
+const { sendResponse } = require('../../utils/responseHelper');
 
-
-exports.register = async (req, res, next) => {
+exports.getProfile = async (req, res) => {
     try {
-        const user = await authService.register(req.body);
-        res.status(201).json({ message: 'User registered successfully', user });
+        const user = req.user;
+        const data = {
+            id: user.sub,
+            email: user.email,
+            role: user.role,
+        };
+        return sendResponse(res, 200, true, 'User profile retrieved', data);
     } catch (error) {
-        next(error);
+        return sendResponse(res, 500, false, 'Error retrieving profile', null, { code: 'PROFILE_ERROR', details: error.message });
     }
 };
 
-exports.login = async (req, res, next) => {
+exports.syncUser = async (req, res) => {
     try {
-        const token = await authService.login(req.body);
-        res.status(200).json({ token });
+        const userData = req.body;
+        const result = await authService.syncUser(userData);
+        return sendResponse(res, 200, true, 'User synchronized successfully', result);
     } catch (error) {
-        next(error);
+        console.error('[AuthSync] Error:', error);
+        return sendResponse(res, 500, false, 'Error synchronizing user', null, { code: 'SYNC_ERROR', details: error.message });
     }
 };
-
-

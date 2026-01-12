@@ -1,11 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const addressController = require('./address.controller');
-const { protect } = require('../../middlewares/auth.middleware');
+const { requireAuth } = require('../../middlewares/auth.middleware');
 
-router.get('/', protect, addressController.getAddresses);
-router.post('/add', protect, addressController.addAddress);
-router.put('/:id', protect, addressController.updateAddress);
-router.delete('/:id', protect, addressController.deleteAddress);
+router.get('/', requireAuth, addressController.getAddresses);
+router.post('/add', requireAuth, addressController.addAddress);
+router.put('/:id', requireAuth, addressController.updateAddress);
+router.delete('/:id', requireAuth, addressController.deleteAddress);
 
 module.exports = router;

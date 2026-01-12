@@ -1,6 +1,5 @@
 'use client';
 
-import { motion } from 'framer-motion';
 import { Check, Star } from 'lucide-react';
 import { Button } from './ui/Button';
 import GlassCard from './ui/GlassCard';

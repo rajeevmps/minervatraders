@@ -38,9 +38,10 @@ export default function RegisterPage() {
                 // Optionally redirect to login or show detailed success message
                 router.push('/login');
             }
-        } catch (error: any) {
-            console.error('Signup Error:', error);
-            toast.error(error.message || 'Failed to create account');
+        } catch (error: unknown) {
+            const err = error as Error;
+            console.error('Signup Error:', err);
+            toast.error(err.message || 'Failed to create account');
         } finally {
             setIsLoading(false);
         }

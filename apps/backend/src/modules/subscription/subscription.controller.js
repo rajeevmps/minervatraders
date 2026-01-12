@@ -1,4 +1,5 @@
 const subscriptionService = require('./subscription.service');
+const { sendResponse } = require('../../utils/responseHelper');
 
 exports.getSubscriptions = async (req, res, next) => {
     try {
@@ -14,7 +15,7 @@ exports.getSubscriptions = async (req, res, next) => {
 exports.getPlans = async (req, res, next) => {
     try {
         const plans = await subscriptionService.getAllPlans();
-        res.status(200).json(plans);
+        return sendResponse(res, 200, true, 'Plans fetched successfully', plans);
     } catch (error) {
         next(error);
     }

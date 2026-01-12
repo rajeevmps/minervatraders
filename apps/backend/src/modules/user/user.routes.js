@@ -1,8 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const userController = require('./user.controller');
-const { protect } = require('../../middlewares/auth.middleware');
+const { requireAuth } = require('../../middlewares/auth.middleware');
 
-router.get('/profile', protect, userController.getProfile);
+// No validation schema needed for getProfile as it relies on auth token
+router.get('/profile', requireAuth, userController.getProfile);
 
 module.exports = router;

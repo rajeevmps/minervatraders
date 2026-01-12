@@ -1,7 +1,12 @@
 const { createClient } = require('@supabase/supabase-js');
 const { supabaseUrl, supabaseServiceKey } = require('./env');
 
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+  auth: {
+    autoRefreshToken: false,
+    persistSession: false
+  }
+});
 
 const connectDB = async () => {
   try {

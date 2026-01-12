@@ -26,9 +26,10 @@ export default function ForgotPasswordPage() {
             if (error) throw error;
             setIsSent(true);
             toast.success('Reset link sent!');
-        } catch (error: any) {
-            console.error('Reset Error:', error);
-            toast.error(error.message || 'Failed to send reset link');
+        } catch (error: unknown) {
+            const err = error as Error;
+            console.error('Reset Error:', err);
+            toast.error(err.message || 'Failed to send reset link');
         } finally {
             setIsLoading(false);
         }
@@ -90,7 +91,7 @@ export default function ForgotPasswordPage() {
                             </div>
                             <h3 className="text-green-400 font-semibold">Check your inbox</h3>
                             <p className="text-sm text-gray-400">
-                                We've sent a password reset link to <strong>{email}</strong>.
+                                We&apos;ve sent a password reset link to <strong>{email}</strong>.
                             </p>
                         </motion.div>
                     )}

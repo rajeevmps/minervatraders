@@ -1,8 +1,8 @@
 import { create } from 'zustand';
 
 interface UserState {
-    profile: any | null;
-    setProfile: (profile: any) => void;
+    profile: unknown | null;
+    setProfile: (profile: unknown) => void;
 }
 
 export const useUserStore = create<UserState>((set) => ({

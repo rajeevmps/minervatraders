@@ -1,0 +1,76 @@
+exports.grantSubscription = async (req, res) => {
+    try {
+        const { email, planId, durationInDays } = req.body;
+
+        const { data: user, error: userError } = await supabase
+            .from('users')
+            .select('id')
+            .eq('email', email)
+            .single();
+
+        if (userError || !user) {
+            return sendResponse(res, 404, false, 'User not found');
+        }
+
+        // Resolve Plan ID
+        let resolvedPlanId = planId;
+        const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(planId);
+
+        if (!isUUID) {
+            // Try to find plain by name (case insensitive)
+            const { data: plan, error: planError } = await supabase
+                .from('subscription_plans')
+                .select('id, duration_days')
+                .ilike('name', `%${planId}%`)
+                .maybeSingle();
+
+            if (planError || !plan) {
+                 return sendResponse(res, 404, false, `Plan '${planId}' not found. Please check exact spelling.`);
+            }
+            resolvedPlanId = plan.id;
+        }
+
+        const startDate = new Date();
+        const endDate = new Date();
+        endDate.setDate(startDate.getDate() + (durationInDays || 30));
+
+        // Insert new subscription
+        const { data, error } = await supabase
+            .from('user_subscriptions')
+            .insert([{
+                user_id: user.id,
+                plan_id: resolvedPlanId,
+                start_date: startDate,
+                end_date: endDate,
+                status: 'active'
+            }])
+            .select();
+
+        if (error) throw error;
+        return sendResponse(res, 201, true, 'Subscription granted', { subscription: data[0] });
+    } catch (error) {
+        console.error(error);
+        return sendResponse(res, 400, false, 'Failed to grant subscription', null, error);
+    }
+};
+
+exports.revokeSubscription = async (req, res) => {
+    try {
+        const { userId } = req.body;
+        
+        // Revoke active subscription
+        const { error } = await supabase
+            .from('user_subscriptions')
+            .update({ 
+                status: 'revoked',
+                end_date: new Date() // Expire immediately
+            })
+            .eq('user_id', userId)
+            .eq('status', 'active');
+
+        if (error) throw error;
+        return sendResponse(res, 200, true, 'Subscriptions revoked');
+    } catch (error) {
+        return sendResponse(res, 400, false, 'Failed to revoke', null, error);
+    }
+};

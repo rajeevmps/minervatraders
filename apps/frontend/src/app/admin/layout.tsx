@@ -5,10 +5,10 @@ import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '../../store/auth.store';
 import { createClient } from '@supabase/supabase-js';
-import { Loader2, LayoutDashboard, Database, LogOut, Settings, Users, CreditCard, Package, Receipt, Activity } from 'lucide-react';
+import { Loader2, LayoutDashboard, LogOut, Settings, Users, CreditCard, Package, Receipt, Activity, Code } from 'lucide-react';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-    const { isAuthenticated, logout } = useAuthStore();
+    const { logout } = useAuthStore();
     const router = useRouter();
     const pathname = usePathname();
     const [isLoading, setIsLoading] = useState(true);
@@ -122,6 +122,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
                     {[
                         { name: 'Audit Logs', href: '/admin/audit', icon: Activity },
+                        { name: 'Webhooks', href: '/admin/webhooks', icon: Code },
                         { name: 'Settings', href: '/admin/settings', icon: Settings },
                     ].map((item) => (
                         <Link key={item.name} href={item.href}>
@@ -134,17 +135,16 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                             </span>
                         </Link>
                     ))}
-                </nav>
 
-                <div className="p-4 border-t border-slate-800">
                     <button
                         onClick={() => { logout(); router.push('/admin/login'); }}
-                        className="flex items-center space-x-3 text-slate-400 hover:text-red-400 transition-colors w-full px-4 py-2"
+                        className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors hover:bg-slate-800 text-slate-400 hover:text-red-400 w-full text-left mt-2"
                     >
                         <LogOut className="w-5 h-5" />
                         <span>Logout</span>
                     </button>
-                </div>
+                </nav>
+
             </aside>
 
             {/* Main Content */}

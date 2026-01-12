@@ -37,7 +37,7 @@ export default function AboutPage() {
                         <h2 className="text-2xl font-bold text-white mb-6">Our Mission</h2>
                         <div className="text-gray-300 space-y-4 leading-relaxed">
                             <p>
-                                We noticed a gap in the market: retail traders often rely on outdated information or "guru" signals that lack transparency. MinervaTraders was born to change that.
+                                We noticed a gap in the market: retail traders often rely on outdated information or &quot;guru&quot; signals that lack transparency. MinervaTraders was born to change that.
                             </p>
                             <p>
                                 Our mission is to provide clear, actionable, and data-driven market insights directly to your phone. We combine advanced algorithm analysis with expert human oversight to filter out the noise and deliver high-quality setups.

@@ -1,41 +1,44 @@
 import api from './api';
-
-export interface User {
-    id: string;
-    email: string;
-    fullName?: string;
-    avatarUrl?: string;
-    role?: string;
-    created_at?: string;
-}
-
-export interface LoginCredentials {
-    email?: string;
-    password?: string;
-    provider?: string;
-    idToken?: string;
-}
-
-export interface RegisterCredentials {
-    email: string;
-    password?: string;
-    fullName?: string;
-}
+import { User, ApiResponse } from '@repo/types';
+import { supabase } from '../lib/supabase';
 
 export const authService = {
-    login: async (credentials: any) => {
-        const response = await api.post('/auth/login', credentials);
-        return response.data;
-    },
-    register: async (data: any) => {
-        const response = await api.post('/auth/register', data);
-        return response.data;
-    },
-    logout: async () => {
-        // Since we are using Supabase directly in the frontend for auth mostly,
-        // we should probably clear the session here.
-        const { createClient } = require('@supabase/supabase-js');
-        const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
+    /**
+     * Logout user.
+     * Clears Supabase session.
+     */
+    logout: async (): Promise<void> => {
         await supabase.auth.signOut();
+    },
+
+    /**
+     * Get current session info (if needed for initial load).
+     */
+    getSession: async (): Promise<User | null> => {
+        const { data: { session } } = await supabase.auth.getSession();
+
+        if (session?.user) {
+            // Map Supabase user to our User type
+            return {
+                id: session.user.id,
+                email: session.user.email!,
+                role: 'user', // Default or fetch from public.users table
+                provider: session.user.app_metadata.provider as "email" | "google" | "github",
+                createdAt: session.user.created_at
+            };
+        }
+        return null;
+    },
+
+    getProfile: async (): Promise<User> => {
+        const response = await api.get<ApiResponse<User>>('/auth/me');
+        return response.data.data;
+    },
+
+    /**
+     * Sync user profile with backend.
+     */
+    syncUser: async (user: Record<string, unknown>): Promise<void> => {
+        await api.post('/auth/sync', user);
     }
 };

@@ -7,7 +7,7 @@ import { Button } from '../../components/ui/Button';
 import GlassCard from '../../components/ui/GlassCard';
 import { supabase } from '../../lib/supabase';
 import { toast } from 'react-hot-toast';
-import { Lock, Loader2 } from 'lucide-react';
+import { Lock } from 'lucide-react';
 
 export default function UpdatePasswordPage() {
     const router = useRouter();
@@ -47,9 +47,10 @@ export default function UpdatePasswordPage() {
             toast.success('Password updated successfully!');
             router.push('/login');
 
-        } catch (error: any) {
-            console.error('Update Error:', error);
-            toast.error(error.message || 'Failed to update password');
+        } catch (error: unknown) {
+            const err = error as Error;
+            console.error('Update Error:', err);
+            toast.error(err.message || 'Failed to update password');
         } finally {
             setIsLoading(false);
         }

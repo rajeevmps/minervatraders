@@ -1,116 +1,86 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '../../../store/auth.store';
 import { supabase } from '../../../lib/supabase';
-import Loader from '../../../components/ui/Loader';
-import { toast } from 'react-hot-toast';
+import { authService } from '../../../services/auth.service';
+import { useAuthStore } from '../../../store/auth.store';
 
-export default function AuthCallback() {
+export default function AuthCallbackPage() {
     const router = useRouter();
     const { setAuth } = useAuthStore();
     const [errorMsg, setErrorMsg] = useState<string | null>(null);
-    const processingRef = useRef(false);
 
     useEffect(() => {
-        if (processingRef.current) return;
-        processingRef.current = true;
-
-        const handleAuth = async () => {
-            console.log('🔄 Auth Callback Initiated');
+        const handleCallback = async () => {
             try {
-                // 1. Check for existing session (Implicit Flow / Magic Link)
-                const { data: { session }, error } = await supabase.auth.getSession();
+                const { data, error: err } = await supabase.auth.getSession();
 
-                if (session) {
-                    console.log('✅ Session Found (Immediate)');
-                    await processLogin(session);
+                if (err) throw err;
+
+                if (data.session) {
+                    await processLogin(data.session);
                     return;
                 }
 
-                // 2. Check for Code (PKCE Flow)
-                const code = new URL(window.location.href).searchParams.get('code');
-                if (code) {
-                    console.log('🔑 Auth Code Found, Exchanging...');
-                    const { data, error: exchangeError } = await supabase.auth.exchangeCodeForSession(code);
-
-                    if (exchangeError) throw exchangeError;
-
-                    if (data.session) {
-                        console.log('✅ Token Exchange Successful');
-                        await processLogin(data.session);
-                        return;
-                    }
+                if (!window.location.hash && !window.location.search) {
+                    setErrorMsg('No authentication token received.');
                 }
 
-                // 3. No Session, No Code -> Show Error (Do not redirect automatically)
-                console.warn('⚠️ No session or code found in URL:', window.location.href);
-                setErrorMsg('No authentication token received. URL: ' + window.location.href);
-                // router.push('/login'); // DISABLE AUTO REDIRECT for debugging
-
-            } catch (err: any) {
-                console.error('❌ Auth Callback Critical Fail:', err);
-                setErrorMsg(err.message || 'Authentication processing failed');
+            } catch (err: unknown) {
+                const error = err as { message?: string };
+                // eslint-disable-next-line no-console
+                console.error('Error in auth callback:', error);
+                setErrorMsg(error.message || 'Failed to complete registration');
             }
         };
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const processLogin = async (session: any) => {
             try {
+                const userMetadata = session.user?.user_metadata || {};
                 const user = {
-                    id: session.user.id,
-                    email: session.user.email!,
-                    fullName: session.user.user_metadata.full_name || session.user.user_metadata.name || session.user.email!.split('@')[0],
-                    role: 'user',
-                    created_at: session.user.created_at,
-                    googleId: session.user.identities?.find((i: any) => i.provider === 'google')?.id
+                    id: session.user?.id as string,
+                    email: session.user?.email as string,
+                    fullName: (userMetadata.full_name as string) || (userMetadata.name as string) || (session.user?.email as string).split('@')[0],
+                    role: 'user' as const,
+                    createdAt: session.user?.created_at as string,
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    googleId: session.user?.identities?.find((i: any) => i.provider === 'google')?.id as string
                 };
 
-                console.log('👤 User Processing:', user.id);
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                await (authService as any).syncUser(user);
 
-                // Check Admin Status (Allow failure)
-                const { data: adminRecord, error: adminError } = await supabase
-                    .from('admins')
-                    .select('user_id')
-                    .eq('user_id', user.id)
-                    .maybeSingle();
+                // Initialize the auth store
+                setAuth(user as any, session.access_token);
 
-                if (adminError) {
-                    console.warn('⚠️ Admin check warning (ignoring):', adminError.message);
-                }
-
-                // Update Local State
-                setAuth(user, session.access_token);
-                toast.success(`Welcome, ${user.fullName}`);
-
-                // Decide Redirect
-                if (adminRecord) {
-                    console.log('👑 Admin Detected -> /admin/dashboard');
-                    router.push('/admin/dashboard');
-                } else {
-                    console.log('👋 Regular User -> /dashboard');
-                    router.push('/dashboard');
-                }
-            } catch (innerErr) {
-                console.error('Login Processing Logic Error:', innerErr);
-                router.push('/dashboard'); // Fallback safety
+                router.push('/dashboard');
+            } catch (err: unknown) {
+                const error = err as { message?: string };
+                // eslint-disable-next-line no-console
+                console.error('❌ Sync Failed:', error);
+                setErrorMsg('Profile sync failed: ' + (error.message || 'Unknown error'));
             }
         };
 
-        handleAuth();
-    }, [router, setAuth]);
+        handleCallback();
+    }, [router]);
 
     if (errorMsg) {
         return (
-            <div className="flex min-h-screen items-center justify-center bg-gray-50 flex-col gap-4 p-4">
-                <div className="bg-red-50 text-red-600 p-6 rounded-lg max-w-md text-center border border-red-200 shadow-sm">
-                    <h3 className="font-bold text-lg mb-2">Login Connection Failed</h3>
-                    <p className="text-sm op-80 mb-4">{errorMsg}</p>
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4">
+                <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center">
+                    <div className="bg-red-500/10 text-red-500 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <div className="w-8 h-8 border-4 border-red-500 rotate-45" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-white mb-2">Authentication Error</h2>
+                    <p className="text-slate-400 mb-8">{errorMsg}</p>
                     <button
                         onClick={() => router.push('/login')}
-                        className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700 transition"
+                        className="w-full bg-primary text-white py-3 rounded-lg font-semibold hover:bg-primary/90 transition-all"
                     >
-                        Try Again
+                        Return to Login
                     </button>
                 </div>
             </div>
@@ -118,11 +88,10 @@ export default function AuthCallback() {
     }
 
     return (
-        <div className="flex min-h-screen items-center justify-center bg-gray-50">
-            <div className="text-center">
-                <Loader size="lg" className="mx-auto mb-4" />
-                <p className="text-gray-600 font-medium">Authenticating secured session...</p>
-            </div>
+        <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
+            <div className="w-16 h-16 border-4 border-primary border-t-transparent rounded-full animate-spin mb-8" />
+            <h2 className="text-2xl font-bold text-white mb-2 italic">Securing Your Connection</h2>
+            <p className="text-slate-400 animate-pulse">Finalizing account verification...</p>
         </div>
     );
 }

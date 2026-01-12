@@ -5,7 +5,7 @@ export const cartService = {
         const response = await api.get('/cart');
         return response.data;
     },
-    addToCart: async (item: any) => {
+    addToCart: async (item: Record<string, unknown>) => {
         const response = await api.post('/cart', item);
         return response.data;
     },

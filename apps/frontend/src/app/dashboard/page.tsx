@@ -1,82 +1,30 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuthStore } from '../../store/auth.store';
 import { Button } from '../../components/ui/Button';
 import GlassCard from '../../components/ui/GlassCard';
 import Loader from '../../components/ui/Loader';
-import { toast } from 'react-hot-toast';
-import axios from 'axios';
 import { motion } from 'framer-motion';
-import { User, CreditCard, ExternalLink, Calendar, LogOut, Send } from 'lucide-react';
+import { User, CreditCard, LogOut, Send } from 'lucide-react';
 import Link from 'next/link';
-
-interface Subscription {
-    id: string;
-    status: string;
-    start_date: string;
-    end_date: string;
-    plan: {
-        name: string;
-    };
-}
+import { useSubscription } from '../../hooks/useSubscription';
+import { useTelegramLink } from '../../hooks/useTelegramLink';
 
 export default function DashboardPage() {
     const router = useRouter();
-    const { user, token, logout, isAuthenticated } = useAuthStore();
-    const [isLoading, setIsLoading] = useState(true);
-    const [subscription, setSubscription] = useState<Subscription | null>(null);
-    const [telegramLink, setTelegramLink] = useState<string | null>(null);
+    const { user, isAuthenticated } = useAuthStore();
+
+    // Custom Hooks
+    const { subscription, isLoading } = useSubscription();
+    const { telegramLink } = useTelegramLink(subscription?.status);
 
     useEffect(() => {
         if (!isAuthenticated) {
             router.push('/login');
-            return;
         }
-
-        const fetchData = async () => {
-            try {
-                const subResponse = await axios.get(
-                    `${process.env.NEXT_PUBLIC_API_URL}/subscriptions`,
-                    { headers: { Authorization: `Bearer ${token}` } }
-                );
-
-                if (subResponse.data && !subResponse.data.message) {
-                    setSubscription(subResponse.data);
-                }
-            } catch (error) {
-                console.error('Dashboard Fetch Error:', error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
-
-        fetchData();
-    }, [isAuthenticated, router, token]);
-
-    // Fetch link on mount if active
-    useEffect(() => {
-        if (subscription?.status === 'active') {
-            handleGetTelegramLink();
-        }
-    }, [subscription]);
-
-    const handleGetTelegramLink = async () => {
-        try {
-            const response = await axios.get(
-                `${process.env.NEXT_PUBLIC_API_URL}/telegram/invite`,
-                { headers: { Authorization: `Bearer ${token}` } }
-            );
-
-            if (response.data && response.data.inviteLink) {
-                setTelegramLink(response.data.inviteLink);
-            }
-        } catch (error: any) {
-            console.error('Telegram Invite Error:', error);
-            // Optionally set error state or just fail silently if polling
-        }
-    };
+    }, [isAuthenticated, router]);
 
     useEffect(() => {
         if (user?.role === 'admin') {
@@ -198,9 +146,9 @@ export default function DashboardPage() {
                                                     href={telegramLink}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="flex items-center justify-center gap-2 w-full bg-[#eca84d] hover:bg-[#d6933c] text-white px-6 py-3 rounded-lg font-medium transition-colors"
+                                                    className="w-full flex items-center justify-center px-6 py-3 bg-[#229ED9] hover:bg-[#1f8rbc] text-white rounded-lg transition-all transform hover:scale-[1.02] shadow-lg hover:shadow-blue-500/25 font-medium"
                                                 >
-                                                    <Send className="w-5 h-5" />
+                                                    <Send className="w-5 h-5 mr-2" />
                                                     Join Telegram Channel
                                                 </a>
                                             ) : (
@@ -257,8 +205,8 @@ export default function DashboardPage() {
                                 <div className="p-3 rounded-lg bg-white/5 border border-white/5">
                                     <p className="text-xs text-gray-500 uppercase tracking-wider mb-1">Member Since</p>
                                     <p className="text-sm font-medium text-white">
-                                        {user?.created_at
-                                            ? new Date(user.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                                        {user?.createdAt
+                                            ? new Date(user.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
                                             : 'N/A'}
                                     </p>
                                 </div>

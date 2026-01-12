@@ -3,11 +3,11 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { adminService } from '../../../services/admin.service';
-import { Database, ArrowRight, Table as TableIcon, Loader2, AlertCircle, Users, CreditCard, TrendingUp } from 'lucide-react';
+import { ArrowRight, Table as TableIcon, Loader2, AlertCircle, Users, CreditCard, TrendingUp, Activity } from 'lucide-react';
 import { toast } from 'react-hot-toast';
 
 export default function AdminDashboard() {
-    const [stats, setStats] = useState<any>(null);
+    const [stats, setStats] = useState<Record<string, unknown> | null>(null);
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -15,10 +15,11 @@ export default function AdminDashboard() {
         const fetchStats = async () => {
             try {
                 const data = await adminService.getStats();
-                setStats(data);
-            } catch (err: any) {
-                console.error('Failed to fetch stats:', err);
-                setError(err.response?.data?.message || err.message);
+                setStats(data as Record<string, unknown>);
+            } catch (err: unknown) {
+                const e = err as { response?: { data?: { message?: string } }; message?: string };
+                console.error('Failed to fetch stats:', e);
+                setError(e.response?.data?.message || e.message || 'Unknown error');
                 toast.error('Failed to load system metrics');
             } finally {
                 setIsLoading(false);
@@ -57,21 +58,21 @@ export default function AdminDashboard() {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <StatCard
                     label="Total Users"
-                    value={stats?.totalUsers || 0}
+                    value={(stats?.totalUsers as number) || 0}
                     icon={Users}
                     color="text-blue-400"
                     bg="bg-blue-400/10"
                 />
                 <StatCard
                     label="Active Subscriptions"
-                    value={stats?.activeSubscriptions || 0}
+                    value={(stats?.activeSubscriptions as number) || 0}
                     icon={CreditCard}
                     color="text-green-400"
                     bg="bg-green-400/10"
                 />
                 <StatCard
                     label="Total Revenue"
-                    value={`₹${stats?.totalRevenue || 0}`}
+                    value={`₹${(stats?.totalRevenue as number) || 0}`}
                     icon={TrendingUp}
                     color="text-amber-400"
                     bg="bg-amber-400/10"
@@ -120,25 +121,27 @@ export default function AdminDashboard() {
                 <div>
                     <h3 className="text-xl font-bold text-white mb-6">Recent Activity</h3>
                     <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 space-y-4">
-                        {[
-                            { title: 'New User Registered', desc: 'alex.rogers@example.com joined the waitlist.', time: '2 mins ago', icon: Users, color: 'text-blue-400', bg: 'bg-blue-400/10' },
-                            { title: 'Subscription Activated', desc: 'Premium Plan (Monthly) purchased by sarah.j.', time: '1 hour ago', icon: CreditCard, color: 'text-green-400', bg: 'bg-green-400/10' },
-                            { title: 'System Backup', desc: 'Daily database snapshot completed successfully.', time: '4 hours ago', icon: Database, color: 'text-slate-400', bg: 'bg-slate-400/10' },
-                            { title: 'Failed Login Attempt', desc: 'Suspicious activity detected from IP 192.168.1.1', time: '5 hours ago', icon: AlertCircle, color: 'text-red-400', bg: 'bg-red-400/10' },
-                        ].map((item, i) => (
-                            <div key={i} className="flex items-start">
-                                <div className={`p-2 rounded-lg mr-3 ${item.bg} flex-shrink-0`}>
-                                    <item.icon className={`w-4 h-4 ${item.color}`} />
-                                </div>
-                                <div>
-                                    <p className="text-sm font-medium text-white">{item.title}</p>
-                                    <p className="text-xs text-slate-400 mt-0.5">{item.desc}</p>
-                                </div>
-                                <span className="ml-auto text-[10px] bg-slate-800 text-slate-500 px-2 py-1 rounded-full whitespace-nowrap">
-                                    {item.time}
-                                </span>
-                            </div>
-                        ))}
+                        {(stats?.recentLogs && (stats.recentLogs as Record<string, unknown>[]).length > 0) ? (
+                            (stats.recentLogs as Record<string, unknown>[]).map((log: Record<string, unknown>, i: number) => {
+                                const userText = (log.users as Record<string, unknown>) ? ((log.users as Record<string, unknown>).full_name as string || (log.users as Record<string, unknown>).email as string) : 'System';
+                                return (
+                                    <div key={i} className="flex items-start">
+                                        <div className="p-2 rounded-lg mr-3 bg-primary/10 flex-shrink-0">
+                                            <Activity className="w-4 h-4 text-primary" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-medium text-white">{log.action as string}</p>
+                                            <p className="text-xs text-slate-500 mt-0.5">by {userText}</p>
+                                        </div>
+                                        <span className="ml-auto text-[10px] bg-slate-800 text-slate-500 px-2 py-1 rounded-full whitespace-nowrap">
+                                            {new Date(log.created_at as string).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                        </span>
+                                    </div>
+                                );
+                            })
+                        ) : (
+                            <div className="text-slate-500 text-center py-4 text-sm">No recent activity</div>
+                        )}
                         <div className="pt-2">
                             <Link href="/admin/audit" className="text-xs text-primary hover:text-primary/80 flex items-center justify-center py-2 bg-slate-800/50 rounded-lg transition-colors">
                                 View Full Audit Log
@@ -151,7 +154,7 @@ export default function AdminDashboard() {
     );
 }
 
-function StatCard({ label, value, icon: Icon, color, bg }: any) {
+function StatCard({ label, value, icon: Icon, color, bg }: { label: string; value: string | number; icon: React.ElementType; color: string; bg: string }) {
     return (
         <div className="bg-slate-900/50 border border-slate-800 p-6 rounded-2xl">
             <div className="flex items-start justify-between">

@@ -47,11 +47,10 @@ export default function PricingPage() {
                 const { data } = await axios.get(`${apiUrl}/subscriptions/plans`);
 
                 // Transform backend data to frontend Plan interface
-                // Backend fields might slightly differ (e.g. duration_days vs duration string)
-                const formattedPlans = data.map((p: any) => ({
-                    id: p.id,
-                    name: p.name,
-                    price: p.price,
+                const formattedPlans = data.data.map((p: Record<string, unknown>) => ({
+                    id: p.id as string,
+                    name: p.name as string,
+                    price: p.price as number,
                     duration: p.name === 'Monthly' ? 'month' : p.name === 'Quarterly' ? '3 months' : 'year',
                     features: FALLBACK_FEATURES[p.name as keyof typeof FALLBACK_FEATURES] || []
                 }));
@@ -66,23 +65,25 @@ export default function PricingPage() {
         fetchPlans();
     }, []);
 
-    const handleSelectPlan = async (plan: Plan) => {
+    const handleSelectPlan = async (plan: Record<string, unknown>) => {
         if (!isAuthenticated) {
             toast.error('Please login to subscribe');
             router.push('/login');
             return;
         }
 
-        setLoadingPlan(plan.id);
+        setLoadingPlan(plan.id as string);
 
         try {
             const token = useAuthStore.getState().token;
             // 1. Create Order
-            const { data: order } = await axios.post(
+            const { data: response } = await axios.post(
                 `${process.env.NEXT_PUBLIC_API_URL}/payments/create-order`,
-                { amount: plan.price, planId: plan.id }, // Now sending UUID!
+                { planId: plan.id }, // Now sending UUID!
                 { headers: { Authorization: `Bearer ${token}` } }
             );
+
+            const order = response.data; // Unwrap the actual order data
 
             // 2. Open Razorpay
             const options = {
@@ -92,10 +93,30 @@ export default function PricingPage() {
                 name: 'MinervaTraders Platform',
                 description: `Subscription - ${plan.name}`,
                 order_id: order.id,
-                handler: async function (response: any) {
-                    toast.loading('Verifying payment via reliable webhook...', { id: 'verify-toast' });
+                handler: async function (rzpResponse: any) {
+                    toast.loading('Verifying payment...', { id: 'verify-toast' });
 
-                    // Poll for active subscription (Webhook confirmed)
+                    try {
+                        // 1. Immediate Verification Call
+                        await axios.post(
+                            `${process.env.NEXT_PUBLIC_API_URL}/payments/verify`,
+                            {
+                                orderId: rzpResponse.razorpay_order_id,
+                                paymentId: rzpResponse.razorpay_payment_id,
+                                signature: rzpResponse.razorpay_signature
+                            },
+                            { headers: { Authorization: `Bearer ${token}` } }
+                        );
+
+                        toast.success('Payment Verified! Redirecting...', { id: 'verify-toast' });
+                        router.push('/dashboard');
+                        return;
+                    } catch (err) {
+                        // If direct verification fails (waiting for webhook), start polling
+                        console.log('Direct verification waiting for webhook or failed, starting polling...');
+                    }
+
+                    // 2. Poll for active subscription as fallback
                     const pollInterval = setInterval(async () => {
                         try {
                             const { data: sub } = await axios.get(
@@ -103,7 +124,8 @@ export default function PricingPage() {
                                 { headers: { Authorization: `Bearer ${token}` } }
                             );
 
-                            if (sub && sub.status === 'active') {
+                            // The backend returns the sub object directly or { message: ... }
+                            if (sub && (sub as any).status === 'active') {
                                 clearInterval(pollInterval);
                                 toast.success('Payment Confirmed! Redirecting...', { id: 'verify-toast' });
                                 router.push('/dashboard');
@@ -116,7 +138,7 @@ export default function PricingPage() {
                     // Timeout after 30 seconds
                     setTimeout(() => {
                         clearInterval(pollInterval);
-                        toast.error('Payment taking longer than expected. Check dashboard later.', { id: 'verify-toast' });
+                        toast.error('Processing taking longer than expected. Please check your dashboard in a moment.', { id: 'verify-toast' });
                         router.push('/dashboard');
                     }, 30000);
                 },
@@ -129,12 +151,14 @@ export default function PricingPage() {
                 },
             };
 
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const rzp = new (window as any).Razorpay(options);
             rzp.open();
 
-        } catch (error: any) {
-            console.error('Subscription Error:', error);
-            const message = error.response?.data?.message || 'Failed to initiate subscription';
+        } catch (error: unknown) {
+            const err = error as { response?: { data?: { message?: string } }; message?: string };
+            console.error('Subscription Error:', err);
+            const message = err.response?.data?.message || err.message || 'Failed to initiate subscription';
             toast.error(message);
         } finally {
             setLoadingPlan(null);
@@ -181,7 +205,7 @@ export default function PricingPage() {
                                 duration={plan.duration}
                                 features={plan.features}
                                 isPopular={plan.name === 'Quarterly'}
-                                onSelect={() => handleSelectPlan(plan)}
+                                onSelect={() => handleSelectPlan(plan as unknown as Record<string, unknown>)}
                                 isLoading={loadingPlan === plan.id}
                             />
                         </motion.div>

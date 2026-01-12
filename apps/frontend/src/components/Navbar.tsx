@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useAuthStore } from '../store/auth.store';
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Menu, X, User, LogOut, CreditCard, LayoutDashboard, Shield } from 'lucide-react';
+import { Menu, X, LogOut, LayoutDashboard, Shield } from 'lucide-react';
 import { Button } from './ui/Button';
 
 import { usePathname } from 'next/navigation';
@@ -40,8 +40,9 @@ export default function Navbar() {
             <motion.nav
                 initial={{ y: -100 }}
                 animate={{ y: 0 }}
-                className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${isScrolled || isMobileMenuOpen ? 'bg-background/80 backdrop-blur-md border-b border-white/10' : 'bg-transparent'
+                className={`fixed top-0 left-0 right-0 z-50 transition-[background-color,border-color,box-shadow] duration-300 border-b will-change-transform translate-z-0 ${isScrolled || isMobileMenuOpen ? 'bg-background/80 backdrop-blur-md border-white/10 shadow-lg' : 'bg-transparent border-transparent'
                     }`}
+                style={{ backfaceVisibility: 'hidden' }}
             >
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex items-center justify-between h-16">
@@ -56,19 +57,19 @@ export default function Navbar() {
                         </Link>
 
                         {/* Desktop Nav */}
-                        <div className="hidden md:flex items-center space-x-8">
+                        <div className="hidden md:flex items-center gap-8">
                             {!isAuthenticated && navLinks.map((link) => (
                                 <Link
                                     key={link.name}
                                     href={link.href}
-                                    className="text-sm font-medium text-gray-300 hover:text-white transition-colors"
+                                    className="text-sm font-medium text-gray-300 hover:text-white transition-colors px-3 py-2 rounded-lg hover:bg-white/5"
                                 >
                                     {link.name}
                                 </Link>
                             ))}
 
                             {isAuthenticated ? (
-                                <div className="flex items-center space-x-4">
+                                <div className="flex items-center gap-4">
                                     {user?.role === 'admin' && (
                                         <Link href="/admin/dashboard">
                                             <Button variant="ghost" className="!px-2 text-red-400 hover:text-red-300 hover:bg-red-400/10">
@@ -89,7 +90,7 @@ export default function Navbar() {
                                     </Button>
                                 </div>
                             ) : (
-                                <div className="flex items-center space-x-4">
+                                <div className="flex items-center gap-4">
                                     <Link href="/login">
                                         <Button variant="ghost">Login</Button>
                                     </Link>

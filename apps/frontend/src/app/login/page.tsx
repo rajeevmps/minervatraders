@@ -4,16 +4,15 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { useAuthStore } from '../../store/auth.store';
 import { Button } from '../../components/ui/Button';
 import GlassCard from '../../components/ui/GlassCard';
 import { supabase } from '../../lib/supabase';
 import { toast } from 'react-hot-toast';
-
-
+import { useAuthStore } from '../../store/auth.store';
 
 export default function LoginPage() {
     const router = useRouter();
+    const { setAuth } = useAuthStore();
     const [isLoading, setIsLoading] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -22,7 +21,7 @@ export default function LoginPage() {
     const handleGoogleLogin = async () => {
         setIsLoading(true);
         try {
-            const { data, error } = await supabase.auth.signInWithOAuth({
+            const { error } = await supabase.auth.signInWithOAuth({
                 provider: 'google',
                 options: {
                     redirectTo: `${window.location.origin}/auth/callback`,
@@ -30,9 +29,10 @@ export default function LoginPage() {
             });
 
             if (error) throw error;
-        } catch (error: any) {
-            console.error('Login Error:', error);
-            toast.error(error.message || 'Failed to login with Google');
+        } catch (error: unknown) {
+            const err = error as Error;
+            console.error('Login Error:', err);
+            toast.error(err.message || 'Failed to login with Google');
             setIsLoading(false);
         }
     };
@@ -48,7 +48,17 @@ export default function LoginPage() {
 
             if (error) throw error;
 
-            if (data.user) {
+            if (data.user && data.session) {
+                const userData = {
+                    id: data.user.id,
+                    email: data.user.email || '',
+                    role: 'user' as const,
+                    createdAt: data.user.created_at
+                };
+
+                // Initialize store immediately so protected routes work
+                setAuth(userData as any, data.session.access_token);
+
                 // Check if user is admin
                 const { data: adminRecord } = await supabase
                     .from('admins')
@@ -57,6 +67,7 @@ export default function LoginPage() {
                     .single();
 
                 if (adminRecord) {
+                    setAuth({ ...userData, role: 'admin' as const } as any, data.session.access_token);
                     toast.success('Welcome Admin');
                     router.push('/admin/dashboard');
                 } else {
@@ -64,8 +75,9 @@ export default function LoginPage() {
                     router.push('/dashboard');
                 }
             }
-        } catch (error: any) {
-            toast.error(error.message || 'Invalid login credentials');
+        } catch (error: unknown) {
+            const err = error as Error;
+            toast.error(err.message || 'Invalid login credentials');
         } finally {
             setIsEmailLoading(false);
             setIsLoading(false);
@@ -174,7 +186,7 @@ export default function LoginPage() {
                     </div>
 
                     <div className="text-center text-sm">
-                        <span className="text-gray-400">Don't have an account? </span>
+                        <span className="text-gray-400">Don&apos;t have an account? </span>
                         <Link href="/register" className="text-primary hover:text-primary/80 font-medium transition-colors">
                             Create one now
                         </Link>
