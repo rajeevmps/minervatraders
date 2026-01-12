@@ -7,7 +7,7 @@ services:
     dockerfilePath: ./apps/backend/Dockerfile
     plan: free
     region: singapore # or ohio, frankfurt, etc.
-    numReplicas: 1
+
     envVars:
       - key: NODE_ENV
         value: production
