@@ -18,9 +18,14 @@ interface Plan {
 }
 
 const FALLBACK_FEATURES = {
-    'Monthly': ['Access to Premium Channel', 'Daily Market Updates', 'Priority Support'],
-    'Quarterly': ['All Monthly Features', '10% Discount', 'Weekly Webinars', 'Exclusive Reports'],
-    'Yearly': ['All Quarterly Features', '20% Discount', '1-on-1 Consultation', 'Lifetime Community Access']
+    Monthly: ['Access to Premium Channel', 'Daily Market Updates', 'Priority Support'],
+    Quarterly: ['All Monthly Features', '10% Discount', 'Weekly Webinars', 'Exclusive Reports'],
+    Yearly: [
+        'All Quarterly Features',
+        '20% Discount',
+        '1-on-1 Consultation',
+        'Lifetime Community Access',
+    ],
 };
 
 export default function PricingPage() {
@@ -29,6 +34,7 @@ export default function PricingPage() {
     const [loadingPlan, setLoadingPlan] = useState<string | null>(null);
     const [plans, setPlans] = useState<Plan[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [isPageLoading, setIsPageLoading] = useState(true);
 
     // Load Razorpay Script
     useEffect(() => {
@@ -44,6 +50,7 @@ export default function PricingPage() {
             try {
                 // Ensure API URL is correct
                 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+                console.log('Fetching plans from:', apiUrl); // Debug log
                 const { data } = await axios.get(`${apiUrl}/subscriptions/plans`);
 
                 // Transform backend data to frontend Plan interface
@@ -51,14 +58,21 @@ export default function PricingPage() {
                     id: p.id as string,
                     name: p.name as string,
                     price: p.price as number,
-                    duration: p.name === 'Monthly' ? 'month' : p.name === 'Quarterly' ? '3 months' : 'year',
-                    features: FALLBACK_FEATURES[p.name as keyof typeof FALLBACK_FEATURES] || []
+                    duration:
+                        p.name === 'Monthly'
+                            ? 'month'
+                            : p.name === 'Quarterly'
+                              ? '3 months'
+                              : 'year',
+                    features: FALLBACK_FEATURES[p.name as keyof typeof FALLBACK_FEATURES] || [],
                 }));
 
                 setPlans(formattedPlans);
             } catch (err) {
                 console.error('Failed to fetch plans', err);
-                setError('Failed to load subscription plans.');
+                setError('Failed to load subscription plans. Please check your connection.');
+            } finally {
+                setIsPageLoading(false);
             }
         };
 
@@ -104,7 +118,7 @@ export default function PricingPage() {
                             {
                                 orderId: rzpResponse.razorpay_order_id,
                                 paymentId: rzpResponse.razorpay_payment_id,
-                                signature: rzpResponse.razorpay_signature
+                                signature: rzpResponse.razorpay_signature,
                             },
                             { headers: { Authorization: `Bearer ${token}` } }
                         );
@@ -115,7 +129,9 @@ export default function PricingPage() {
                     } catch (err) {
                         // If direct verification fails (waiting for webhook), start polling
                         // eslint-disable-next-line no-console
-                        console.log('Direct verification waiting for webhook or failed, starting polling...');
+                        console.log(
+                            'Direct verification waiting for webhook or failed, starting polling...'
+                        );
                     }
 
                     // 2. Poll for active subscription as fallback
@@ -130,7 +146,9 @@ export default function PricingPage() {
                             // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             if (sub && (sub as any).status === 'active') {
                                 clearInterval(pollInterval);
-                                toast.success('Payment Confirmed! Redirecting...', { id: 'verify-toast' });
+                                toast.success('Payment Confirmed! Redirecting...', {
+                                    id: 'verify-toast',
+                                });
                                 router.push('/dashboard');
                             }
                         } catch (e) {
@@ -141,7 +159,10 @@ export default function PricingPage() {
                     // Timeout after 30 seconds
                     setTimeout(() => {
                         clearInterval(pollInterval);
-                        toast.error('Processing taking longer than expected. Please check your dashboard in a moment.', { id: 'verify-toast' });
+                        toast.error(
+                            'Processing taking longer than expected. Please check your dashboard in a moment.',
+                            { id: 'verify-toast' }
+                        );
                         router.push('/dashboard');
                     }, 30000);
                 },
@@ -157,11 +178,11 @@ export default function PricingPage() {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const rzp = new (window as any).Razorpay(options);
             rzp.open();
-
         } catch (error: unknown) {
             const err = error as { response?: { data?: { message?: string } }; message?: string };
             console.error('Subscription Error:', err);
-            const message = err.response?.data?.message || err.message || 'Failed to initiate subscription';
+            const message =
+                err.response?.data?.message || err.message || 'Failed to initiate subscription';
             toast.error(message);
         } finally {
             setLoadingPlan(null);
@@ -194,7 +215,15 @@ export default function PricingPage() {
                 transition={{ delay: 0.2 }}
                 className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-7xl mx-auto px-4 lg:px-8"
             >
-                {plans.length > 0 ? (
+                {isPageLoading ? (
+                    <div className="text-white text-center col-span-3 py-12">
+                        <div className="w-8 h-8 border-4 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+                        <p className="animate-pulse text-indigo-400">Connecting to server...</p>
+                        <p className="text-xs text-slate-600 mt-2">
+                            (This might take a minute if the server is waking up)
+                        </p>
+                    </div>
+                ) : plans.length > 0 ? (
                     plans.map((plan, index) => (
                         <motion.div
                             key={plan.id}
@@ -208,14 +237,30 @@ export default function PricingPage() {
                                 duration={plan.duration}
                                 features={plan.features}
                                 isPopular={plan.name === 'Quarterly'}
-                                onSelect={() => handleSelectPlan(plan as unknown as Record<string, unknown>)}
+                                onSelect={() =>
+                                    handleSelectPlan(plan as unknown as Record<string, unknown>)
+                                }
                                 isLoading={loadingPlan === plan.id}
                             />
                         </motion.div>
                     ))
                 ) : (
-                    <div className="text-white text-center col-span-3">
-                        {error ? <p className="text-red-400">{error}</p> : <p>Loading plans...</p>}
+                    <div className="text-white text-center col-span-3 py-12">
+                        {error ? (
+                            <div>
+                                <p className="text-red-400 mb-2">{error}</p>
+                                <button
+                                    onClick={() => window.location.reload()}
+                                    className="text-sm underline opacity-75 hover:opacity-100"
+                                >
+                                    Try Again
+                                </button>
+                            </div>
+                        ) : (
+                            <p className="text-slate-400">
+                                No subscription plans found at the moment.
+                            </p>
+                        )}
                     </div>
                 )}
             </motion.div>
