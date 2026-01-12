@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useParams } from 'next/navigation';
-import { adminService } from '../../../services/admin.service';
+import { adminService } from '../../../../services/admin.service';
 import { Loader2, ArrowLeft, RefreshCcw, Search, Filter } from 'lucide-react';
 import Link from 'next/link';
 
@@ -43,7 +43,10 @@ export default function TableView() {
         <div className="space-y-6">
             <header className="flex items-center justify-between">
                 <div className="flex items-center gap-4">
-                    <Link href="/admin/tables" className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400">
+                    <Link
+                        href="/admin/tables"
+                        className="p-2 hover:bg-slate-800 rounded-lg transition-colors text-slate-400"
+                    >
                         <ArrowLeft className="w-5 h-5" />
                     </Link>
                     <div>
@@ -55,7 +58,9 @@ export default function TableView() {
                     onClick={() => setPage(1)}
                     className="flex items-center gap-2 px-4 py-2 bg-slate-800 text-white rounded-lg hover:bg-slate-700 transition-colors"
                 >
-                    <RefreshCcw className={`w-4 h-4 ${isLoading ? 'animate-spin text-primary' : ''}`} />
+                    <RefreshCcw
+                        className={`w-4 h-4 ${isLoading ? 'animate-spin text-primary' : ''}`}
+                    />
                     Refresh
                 </button>
             </header>
@@ -81,8 +86,11 @@ export default function TableView() {
                     <table className="w-full text-left">
                         <thead className="bg-slate-950/50 border-b border-slate-800">
                             <tr>
-                                {columns.map(col => (
-                                    <th key={col} className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                                {columns.map((col) => (
+                                    <th
+                                        key={col}
+                                        className="px-6 py-4 text-xs font-semibold text-slate-400 uppercase tracking-wider"
+                                    >
                                         {col}
                                     </th>
                                 ))}
@@ -91,20 +99,31 @@ export default function TableView() {
                         <tbody className="divide-y divide-slate-800/50">
                             {isLoading && data.length === 0 ? (
                                 <tr>
-                                    <td colSpan={columns.length || 1} className="px-6 py-12 text-center text-slate-500">
+                                    <td
+                                        colSpan={columns.length || 1}
+                                        className="px-6 py-12 text-center text-slate-500"
+                                    >
                                         <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2 opacity-20" />
                                         Fetching data...
                                     </td>
                                 </tr>
                             ) : data.length === 0 ? (
                                 <tr>
-                                    <td colSpan={columns.length || 1} className="px-6 py-12 text-center text-slate-500 italic">No records found</td>
+                                    <td
+                                        colSpan={columns.length || 1}
+                                        className="px-6 py-12 text-center text-slate-500 italic"
+                                    >
+                                        No records found
+                                    </td>
                                 </tr>
                             ) : (
                                 data.map((row, i) => (
                                     <tr key={i} className="hover:bg-slate-800/30 transition-colors">
-                                        {columns.map(col => (
-                                            <td key={col} className="px-6 py-4 text-sm text-slate-300 font-mono whitespace-nowrap overflow-hidden max-w-[300px] truncate">
+                                        {columns.map((col) => (
+                                            <td
+                                                key={col}
+                                                className="px-6 py-4 text-sm text-slate-300 font-mono whitespace-nowrap overflow-hidden max-w-[300px] truncate"
+                                            >
                                                 {formatValue(row[col])}
                                             </td>
                                         ))}
@@ -121,7 +140,7 @@ export default function TableView() {
                 <div className="flex bg-slate-900 border border-slate-800 rounded-lg p-1">
                     <button
                         disabled={page === 1}
-                        onClick={() => setPage(p => p - 1)}
+                        onClick={() => setPage((p) => p - 1)}
                         className="px-4 py-2 hover:bg-slate-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                     >
                         Previous
@@ -131,7 +150,7 @@ export default function TableView() {
                     </div>
                     <button
                         disabled={page * 50 >= count}
-                        onClick={() => setPage(p => p + 1)}
+                        onClick={() => setPage((p) => p + 1)}
                         className="px-4 py-2 hover:bg-slate-800 rounded-md transition-colors disabled:opacity-30 disabled:hover:bg-transparent"
                     >
                         Next
