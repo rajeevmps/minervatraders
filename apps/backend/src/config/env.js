@@ -6,7 +6,9 @@ const envPath = path.resolve(__dirname, '../../.env');
 const result = dotenv.config({ path: envPath });
 
 if (result.error) {
-    console.error("Dotenv: Failed to load .env from", envPath, result.error);
+    if (process.env.NODE_ENV !== 'production') {
+        console.warn("Dotenv: Failed to load .env file (Expected in Production if using Cloud Env Vars)");
+    }
 } else {
     console.log("Dotenv: Loaded configuration from", envPath);
 }

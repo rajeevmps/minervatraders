@@ -2,12 +2,15 @@ const cron = require('node-cron');
 const { supabase } = require('../../config/db');
 const telegramService = require('../telegram/telegram.service');
 
-// Run twice a day at midnight and noon: '0 0,12 * * *'
-cron.schedule('0 0,12 * * *', async () => {
-    console.log('--- Running Subscription Cleanup & Reminders (Twice Daily) ---');
-    await processExpiredSubscriptions();
-    await processRenewalReminders();
-});
+const initCronJobs = () => {
+    // Run twice a day at midnight and noon: '0 0,12 * * *'
+    cron.schedule('0 0,12 * * *', async () => {
+        console.log('--- Running Subscription Cleanup & Reminders (Twice Daily) ---');
+        await processExpiredSubscriptions();
+        await processRenewalReminders();
+    });
+    console.log('--- Cron Jobs Initialized ---');
+};
 
 
 const processRenewalReminders = async () => {
@@ -114,4 +117,8 @@ const processExpiredSubscriptions = async () => {
     } catch (err) {
         console.error('Cron Job Error:', err);
     }
+};
+
+module.exports = {
+    initCronJobs
 };
