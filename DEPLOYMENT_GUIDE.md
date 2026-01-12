@@ -174,3 +174,21 @@ This confirms the bot is running correctly.
     *   Also add: `https://your-project.vercel.app`
 3.  **Save**.
 4.  This fixes the "Redirect Mismatch" error when logging in with Google.
+
+---
+
+## 7. Custom Domains
+
+### Frontend (User-Facing)
+1.  Go to **Vercel Dashboard** -> **Settings** -> **Domains**.
+2.  Enter your domain (e.g., `minervatraders.com`) and click **Add**.
+3.  Vercel will give you **DNS Records** (A Record or CNAME) to add to your domain registrar (GoDaddy, Namecheap, cloudflare, etc.).
+4.  Once verified, your site will be live at your custom domain!
+
+### Backend (API) - Optional
+*Usually not needed if you just use the frontend domain, but for professional APIs:*
+1.  Go to **Railway Dashboard** -> **Settings** -> **Networking**.
+2.  Click **Custom Domain**.
+3.  Enter `api.minervatraders.com` (example).
+4.  Add the provided CNAME record to your DNS.
+5.  **Important:** If you do this, update `NEXT_PUBLIC_API_URL` in Vercel to the new custom backend URL.
