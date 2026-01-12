@@ -166,3 +166,11 @@ Check Railway logs. The bot service should show:
 * or "Webhook set"
 
 This confirms the bot is running correctly.
+
+### 4. Google Auth Redirect (Crucial)
+1.  Go to **Supabase Dashboard** -> **Authentication** -> **URL Configuration**.
+2.  Add your **Vercel Production URL** to the **Redirect URLs** list.
+    *   Format: `https://your-project.vercel.app/**` (Wildcard `**` covers all routes)
+    *   Also add: `https://your-project.vercel.app`
+3.  **Save**.
+4.  This fixes the "Redirect Mismatch" error when logging in with Google.
