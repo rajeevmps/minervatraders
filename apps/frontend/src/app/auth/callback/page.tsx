@@ -53,6 +53,7 @@ export default function AuthCallbackPage() {
                 await (authService as any).syncUser(user);
 
                 // Initialize the auth store
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 setAuth(user as any, session.access_token);
 
                 router.push('/dashboard');

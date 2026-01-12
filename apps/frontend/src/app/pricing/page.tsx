@@ -93,6 +93,7 @@ export default function PricingPage() {
                 name: 'MinervaTraders Platform',
                 description: `Subscription - ${plan.name}`,
                 order_id: order.id,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 handler: async function (rzpResponse: any) {
                     toast.loading('Verifying payment...', { id: 'verify-toast' });
 
@@ -113,6 +114,7 @@ export default function PricingPage() {
                         return;
                     } catch (err) {
                         // If direct verification fails (waiting for webhook), start polling
+                        // eslint-disable-next-line no-console
                         console.log('Direct verification waiting for webhook or failed, starting polling...');
                     }
 
@@ -125,6 +127,7 @@ export default function PricingPage() {
                             );
 
                             // The backend returns the sub object directly or { message: ... }
+                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
                             if (sub && (sub as any).status === 'active') {
                                 clearInterval(pollInterval);
                                 toast.success('Payment Confirmed! Redirecting...', { id: 'verify-toast' });

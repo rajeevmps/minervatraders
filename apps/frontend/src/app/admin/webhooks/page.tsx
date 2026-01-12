@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { adminService } from '../../../services/admin.service';
 import { toast } from 'react-hot-toast';
-import { Code, Trash2, Power, Plus } from 'lucide-react';
+import { Code } from 'lucide-react';
 
 export default function WebhooksManagement() {
     const [webhooks, setWebhooks] = useState<Record<string, unknown>[]>([]);

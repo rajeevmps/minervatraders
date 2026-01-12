@@ -57,7 +57,7 @@ export default function LoginPage() {
                 };
 
                 // Initialize store immediately so protected routes work
-                setAuth(userData as any, data.session.access_token);
+                setAuth(userData as any, data.session.access_token); // eslint-disable-line @typescript-eslint/no-explicit-any
 
                 // Check if user is admin
                 const { data: adminRecord } = await supabase
@@ -67,7 +67,7 @@ export default function LoginPage() {
                     .single();
 
                 if (adminRecord) {
-                    setAuth({ ...userData, role: 'admin' as const } as any, data.session.access_token);
+                    setAuth({ ...userData, role: 'admin' as const } as any, data.session.access_token); // eslint-disable-line @typescript-eslint/no-explicit-any
                     toast.success('Welcome Admin');
                     router.push('/admin/dashboard');
                 } else {
