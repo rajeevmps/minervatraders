@@ -50,6 +50,7 @@ export default function PricingPage() {
             try {
                 // Ensure API URL is correct
                 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api/v1';
+                // eslint-disable-next-line no-console
                 console.log('Fetching plans from:', apiUrl); // Debug log
                 const { data } = await axios.get(`${apiUrl}/subscriptions/plans`);
 
@@ -62,8 +63,8 @@ export default function PricingPage() {
                         p.name === 'Monthly'
                             ? 'month'
                             : p.name === 'Quarterly'
-                              ? '3 months'
-                              : 'year',
+                                ? '3 months'
+                                : 'year',
                     features: FALLBACK_FEATURES[p.name as keyof typeof FALLBACK_FEATURES] || [],
                 }));
 
