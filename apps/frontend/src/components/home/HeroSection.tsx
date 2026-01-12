@@ -43,20 +43,33 @@ export const HeroSection = ({ fadeIn, stagger }: HeroSectionProps) => {
 
                 <motion.p
                     variants={fadeIn}
+                    suppressHydrationWarning
                     className="text-xl md:text-2xl text-gray-400 max-w-3xl mx-auto leading-relaxed"
                 >
-                    Join <span className="text-white font-semibold">10,000+ elite traders</span> getting real-time signals, institutional-grade analysis, and weekly reports directly on Telegram.
+                    Join <span className="text-white font-semibold">10,000+ elite traders</span>{' '}
+                    getting real-time signals, institutional-grade analysis, and weekly reports
+                    directly on Telegram.
                 </motion.p>
 
-                <motion.div variants={fadeIn} className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-8">
+                <motion.div
+                    variants={fadeIn}
+                    className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-8"
+                >
                     <Link href="/register" className="w-full sm:w-auto">
-                        <Button size="lg" className="w-full sm:w-auto shadow-xl shadow-indigo-500/30 text-lg px-8 py-6 h-auto transition-transform hover:scale-105">
+                        <Button
+                            size="lg"
+                            className="w-full sm:w-auto shadow-xl shadow-indigo-500/30 text-lg px-8 py-6 h-auto transition-transform hover:scale-105"
+                        >
                             Start Free Trial
                             <ArrowRight className="ml-2 w-5 h-5" />
                         </Button>
                     </Link>
                     <Link href="/features" className="w-full sm:w-auto">
-                        <Button variant="outline" size="lg" className="w-full sm:w-auto text-lg px-8 py-6 h-auto hover:bg-white/5">
+                        <Button
+                            variant="outline"
+                            size="lg"
+                            className="w-full sm:w-auto text-lg px-8 py-6 h-auto hover:bg-white/5"
+                        >
                             Explore Features
                         </Button>
                     </Link>
@@ -84,7 +97,6 @@ export const HeroSection = ({ fadeIn, stagger }: HeroSectionProps) => {
                         <p className="text-sm text-gray-500">User Rating</p>
                     </div>
                 </motion.div>
-
             </motion.div>
         </section>
     );
