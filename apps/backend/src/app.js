@@ -9,6 +9,9 @@ const hpp = require('hpp');
 
 const app = express();
 
+// Enable trust proxy for Railway/Heroku load balancers
+app.set('trust proxy', 1);
+
 // 1. Security Headers
 app.use(helmet());
 
