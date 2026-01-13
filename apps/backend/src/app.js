@@ -19,7 +19,7 @@ app.use(helmet());
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100, // Limit each IP to 100 requests per windowMs
-    message: 'Too many requests from this IP, please try again later.'
+    message: 'Too many requests from this IP, please try again later.',
 });
 app.use('/api', limiter);
 
@@ -32,30 +32,41 @@ const allowedOrigins = [
     'http://localhost:3001',
     'http://127.0.0.1:3000',
     'http://127.0.0.1:3001',
-    'http://localhost:5000'
+    'http://localhost:5000',
+    'https://www.minervatraders.in',
+    'https://minervatraders.in',
 ];
 
-app.use(cors({
-    origin: (origin, callback) => {
-        // Allow requests with no origin (like mobile apps or curl requests)
-        if (!origin) return callback(null, true);
+app.use(
+    cors({
+        origin: (origin, callback) => {
+            // Allow requests with no origin (like mobile apps or curl requests)
+            if (!origin) return callback(null, true);
 
-        // Relaxed for development: Allow ngrok and local origins
-        if (process.env.NODE_ENV !== 'production' || allowedOrigins.indexOf(origin) !== -1 || origin.includes('ngrok-free.app')) {
-            return callback(null, true);
-        }
+            // Relaxed for development: Allow ngrok and local origins
+            if (
+                process.env.NODE_ENV !== 'production' ||
+                allowedOrigins.indexOf(origin) !== -1 ||
+                origin.includes('ngrok-free.app')
+            ) {
+                return callback(null, true);
+            }
 
-        const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-        return callback(new Error(msg), false);
-    },
-    credentials: true
-}));
+            const msg =
+                'The CORS policy for this site does not allow access from the specified Origin.';
+            return callback(new Error(msg), false);
+        },
+        credentials: true,
+    })
+);
 
-app.use(express.json({
-    verify: (req, res, buf) => {
-        req.rawBody = buf;
-    }
-}));
+app.use(
+    express.json({
+        verify: (req, res, buf) => {
+            req.rawBody = buf;
+        },
+    })
+);
 
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok', timestamp: new Date() });
