@@ -12,7 +12,6 @@ const initCronJobs = () => {
     console.log('--- Cron Jobs Initialized ---');
 };
 
-
 const processRenewalReminders = async () => {
     try {
         const today = new Date();
@@ -23,7 +22,7 @@ const processRenewalReminders = async () => {
             targetDate.setDate(today.getDate() + days);
 
             // Format to YYYY-MM-DD for simple string comparison or use range
-            // Here assuming we compare by day. 
+            // Here assuming we compare by day.
             // A better way for DB: start of day <= end_date < end of day.
             // For simplicity/robustness, let's grab sub's ending roughly on this day.
             const startOfDay = new Date(targetDate.setHours(0, 0, 0, 0)).toISOString();
@@ -31,11 +30,13 @@ const processRenewalReminders = async () => {
 
             const { data: subs, error } = await supabase
                 .from('user_subscriptions')
-                .select(`
+                .select(
+                    `
                     id, 
                     end_date,
                     users ( telegram_access ( telegram_user_id ) )
-                `)
+                `
+                )
                 .eq('status', 'active')
                 .gte('end_date', startOfDay)
                 .lte('end_date', endOfDay);
@@ -65,7 +66,8 @@ const processExpiredSubscriptions = async () => {
         // 1. Find ACTIVE subscriptions that have EXPIRED (end_date < now)
         const { data: expiredSubs, error } = await supabase
             .from('user_subscriptions')
-            .select(`
+            .select(
+                `
                 id, 
                 user_id, 
                 users (
@@ -73,7 +75,8 @@ const processExpiredSubscriptions = async () => {
                         telegram_user_id
                     )
                 )
-            `)
+            `
+            )
             .eq('status', 'active')
             .lt('end_date', now);
 
@@ -89,36 +92,58 @@ const processExpiredSubscriptions = async () => {
         const PROCESSED_STATUS = 'expired';
         const CHANNEL_ID = process.env.TELEGRAM_CHANNEL_ID;
 
-        for (const sub of expiredSubs) {
-            const userId = sub.user_id;
+        // Helper to chunk arrays
+        const chunkArray = (arr, size) =>
+            Array.from({ length: Math.ceil(arr.length / size) }, (v, i) =>
+                arr.slice(i * size, i * size + size)
+            );
 
-            // Mark as expired in DB
-            await supabase
-                .from('user_subscriptions')
-                .update({ status: PROCESSED_STATUS })
-                .eq('id', sub.id);
+        const chunks = chunkArray(expiredSubs, 10); // Batch of 10
 
-            // Access nested telegram info (Supabase returns array for 1:many, or object if single? using safe check)
-            const access = sub.users?.telegram_access;
-            // It could be an array if relation is one-to-many
-            const telegramData = Array.isArray(access) ? access[0] : access;
+        for (const chunk of chunks) {
+            const promises = chunk.map(async (sub) => {
+                // Mark as expired in DB
+                await supabase
+                    .from('user_subscriptions')
+                    .update({ status: PROCESSED_STATUS })
+                    .eq('id', sub.id);
 
-            if (telegramData && telegramData.telegram_user_id) {
-                // KICK from Telegram
-                await telegramService.kickMember(CHANNEL_ID, telegramData.telegram_user_id);
+                const access = sub.users?.telegram_access;
+                const telegramData = Array.isArray(access) ? access[0] : access;
 
-                // Update Access Status (optional)
-                await supabase.from('telegram_access')
-                    .update({ is_active: false })
-                    .eq('telegram_user_id', telegramData.telegram_user_id);
-            }
+                if (telegramData && telegramData.telegram_user_id) {
+                    try {
+                        // KICK from Telegram
+                        await telegramService.kickMember(CHANNEL_ID, telegramData.telegram_user_id);
+
+                        // Update Access Status
+                        await supabase
+                            .from('telegram_access')
+                            .update({ is_active: false })
+                            .eq('telegram_user_id', telegramData.telegram_user_id);
+                    } catch (e) {
+                        console.error(
+                            `Failed to process telegram logic for user ${telegramData.telegram_user_id}:`,
+                            e.message
+                        );
+                    }
+                }
+            });
+
+            // Await the batch with allSettled to prevent single-failure blocks
+            const results = await Promise.allSettled(promises);
+            results.forEach((res) => {
+                if (res.status === 'rejected') console.error('Batch processing error:', res.reason);
+            });
+
+            // Anti-Rate-Limit delay between batches
+            await new Promise((res) => setTimeout(res, 500));
         }
-
     } catch (err) {
         console.error('Cron Job Error:', err);
     }
 };
 
 module.exports = {
-    initCronJobs
+    initCronJobs,
 };
