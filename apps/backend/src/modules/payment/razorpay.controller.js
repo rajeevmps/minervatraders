@@ -12,7 +12,9 @@ exports.createOrder = async (req, res, next) => {
         // 0. Check for active subscription
         const activeSub = await subscriptionService.getActiveSubscription(userId);
         if (activeSub) {
-            return sendResponse(res, 400, false, 'Active subscription exists', null, { code: 'ACTIVE_SUBSCRIPTION_EXISTS' });
+            return sendResponse(res, 400, false, 'Active subscription exists', null, {
+                code: 'ACTIVE_SUBSCRIPTION_EXISTS',
+            });
         }
 
         // 1. Fetch Plan Details (Source of Truth)
@@ -42,13 +44,13 @@ exports.createOrder = async (req, res, next) => {
         if (orderError) throw orderError;
 
         // 2.5 Create Order Item
-        const { error: itemError } = await supabase
-            .from('order_items')
-            .insert([{
+        const { error: itemError } = await supabase.from('order_items').insert([
+            {
                 order_id: internalOrder.id,
                 plan_id: planId,
-                price: amount
-            }]);
+                price: amount,
+            },
+        ]);
 
         if (itemError) throw itemError;
 
@@ -64,20 +66,26 @@ exports.createOrder = async (req, res, next) => {
         if (updateOrderError) throw updateOrderError;
 
         // 4. Create Payment Record (Pending)
-        const { error: paymentError } = await supabase
-            .from('payments')
-            .insert([{
+        const { error: paymentError } = await supabase.from('payments').insert([
+            {
                 user_id: userId,
                 order_id: internalOrder.id,
                 amount: amount,
-                status: 'pending'
-            }]);
+                status: 'pending',
+            },
+        ]);
 
         if (paymentError) throw paymentError;
 
-        return sendResponse(res, 200, true, 'Order created', { ...rpOrder, internal_order_id: internalOrder.id });
+        return sendResponse(res, 200, true, 'Order created', {
+            ...rpOrder,
+            internal_order_id: internalOrder.id,
+        });
     } catch (error) {
-        return sendResponse(res, 500, false, 'Error creating order', null, { code: 'ORDER_CREATION_ERROR', details: error.message });
+        return sendResponse(res, 500, false, 'Error creating order', null, {
+            code: 'ORDER_CREATION_ERROR',
+            details: error.message,
+        });
     }
 };
 
@@ -105,7 +113,7 @@ exports.verifyPayment = async (req, res, next) => {
                 .update({
                     razorpay_payment_id: paymentId,
                     razorpay_signature: signature,
-                    status: 'captured'
+                    status: 'captured',
                 })
                 .eq('order_id', orderData.id)
                 .select()
@@ -132,35 +140,56 @@ exports.verifyPayment = async (req, res, next) => {
             if (orderItem && orderItem.plan_id) {
                 // Determine user ID from order (safest) or use internalOrder if available
                 // We need fetching user_id from order
-                const { data: orderUser } = await supabase.from('orders').select('user_id').eq('id', orderData.id).single();
+                const { data: orderUser } = await supabase
+                    .from('orders')
+                    .select('user_id')
+                    .eq('id', orderData.id)
+                    .single();
 
                 if (orderUser) {
-                    await subscriptionService.createSubscription(orderUser.user_id, orderItem.plan_id, orderData.id);
+                    await subscriptionService.createSubscription(
+                        orderUser.user_id,
+                        orderItem.plan_id,
+                        orderData.id
+                    );
 
                     // 2. Generate Telegram Invite
                     try {
-                        const inviteLink = await telegramService.generateInviteLink(orderUser.user_id);
+                        const inviteLink = await telegramService.generateInviteLink(
+                            orderUser.user_id
+                        );
                         return sendResponse(res, 200, true, 'Payment verified successfully', {
                             inviteLink,
-                            subscriptionActive: true
+                            subscriptionActive: true,
                         });
                     } catch (tgError) {
                         console.error('Telegram Link Gen Failed:', tgError);
                         // Don't fail the whole request, just warn
-                        return sendResponse(res, 200, true, 'Payment verified, but Telegram link generation failed. Please contact support.', {
-                            subscriptionActive: true,
-                            warning: 'TELEGRAM_LINK_FAILED'
-                        });
+                        return sendResponse(
+                            res,
+                            200,
+                            true,
+                            'Payment verified, but Telegram link generation failed. Please contact support.',
+                            {
+                                subscriptionActive: true,
+                                warning: 'TELEGRAM_LINK_FAILED',
+                            }
+                        );
                     }
                 }
             }
 
             return sendResponse(res, 200, true, 'Payment verified successfully');
         } else {
-            return sendResponse(res, 400, false, 'Invalid signature', null, { code: 'INVALID_SIGNATURE' });
+            return sendResponse(res, 400, false, 'Invalid signature', null, {
+                code: 'INVALID_SIGNATURE',
+            });
         }
     } catch (error) {
-        return sendResponse(res, 500, false, 'Error verifying payment', null, { code: 'PAYMENT_VERIFICATION_ERROR', details: error.message });
+        return sendResponse(res, 500, false, 'Error verifying payment', null, {
+            code: 'PAYMENT_VERIFICATION_ERROR',
+            details: error.message,
+        });
     }
 };
 
@@ -173,16 +202,18 @@ exports.handleWebhook = async (req, res) => {
         // 1. Log incoming request
         const { data: log, error: logError } = await supabase
             .from('webhook_logs')
-            .insert([{
-                event_type: payload.event || 'unknown',
-                payload: payload,
-                signature: signature,
-                processed: false
-            }])
+            .insert([
+                {
+                    event_type: payload.event || 'unknown',
+                    payload: payload,
+                    signature: signature,
+                    processed: false,
+                },
+            ])
             .select()
             .single();
 
-        if (logError) console.error("Webhook Log Error:", logError);
+        if (logError) console.error('Webhook Log Error:', logError);
 
         // 2. Validate Signature
         const crypto = require('crypto');
@@ -192,7 +223,12 @@ exports.handleWebhook = async (req, res) => {
         const expectedSignature = hmac.digest('hex');
 
         if (signature !== expectedSignature) {
-            console.warn("Invalid Webhook Signature. Expected:", expectedSignature, "Received:", signature);
+            console.warn(
+                'Invalid Webhook Signature. Expected:',
+                expectedSignature,
+                'Received:',
+                signature
+            );
             return res.status(200).json({ status: 'ok', warning: 'invalid_signature' });
         }
 
@@ -218,6 +254,11 @@ exports.handleWebhook = async (req, res) => {
                     .single();
 
                 if (orderItem && orderItem.plan_id) {
+                    if (orderData.status === 'paid') {
+                        // Idempotency: Webhook already processed this order
+                        return res.status(200).json({ status: 'ok', msg: 'already_paid' });
+                    }
+
                     // Update Payment Record
                     await supabase
                         .from('payments')
@@ -225,22 +266,23 @@ exports.handleWebhook = async (req, res) => {
                             razorpay_payment_id: paymentId,
                             status: 'captured',
                             method: paymentEntity.method,
-                            webhook_event: payload.event
+                            webhook_event: payload.event,
                         })
                         .eq('order_id', orderData.id); // Matches internal Order ID
 
                     // Update Order Status
-                    await supabase
-                        .from('orders')
-                        .update({ status: 'paid' })
-                        .eq('id', orderData.id);
+                    await supabase.from('orders').update({ status: 'paid' }).eq('id', orderData.id);
 
                     // Activate Subscription (Idempotent check inside service usually, or we check status)
-                    // But createSubscription usually creates a NEW one. 
+                    // But createSubscription usually creates a NEW one.
                     // To prevent duplicates if user hits verify + webhook, check if sub exists for this order?
                     // subscriptionService.createSubscription checks logic? No, let's assume valid flow.
                     if (orderData.status !== 'paid') {
-                        await subscriptionService.createSubscription(orderData.user_id, orderItem.plan_id, orderData.id);
+                        await subscriptionService.createSubscription(
+                            orderData.user_id,
+                            orderItem.plan_id,
+                            orderData.id
+                        );
 
                         // Generate Telegram Link (Optional: send email/notification here)
                         // await telegramService.generateInviteLink(orderData.user_id);
@@ -256,7 +298,7 @@ exports.handleWebhook = async (req, res) => {
 
         return res.status(200).json({ status: 'ok' });
     } catch (error) {
-        console.error("Webhook Error:", error);
+        console.error('Webhook Error:', error);
         return res.status(200).json({ status: 'error' });
     }
 };
