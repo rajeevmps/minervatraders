@@ -169,6 +169,16 @@ describe('subscription lifecycle', () => {
 
         expect(res.body.data).toHaveLength(2);
     });
+
+    it('rejects a malformed subscription id on cancel', async () => {
+        const { accessToken } = await createAndSignIn();
+
+        const res = await request(app)
+            .post('/api/v1/subscriptions/not-a-uuid/cancel')
+            .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(res.status).toBe(400);
+    });
 });
 
 describe('orders', () => {
@@ -200,6 +210,17 @@ describe('orders', () => {
             .set('Authorization', `Bearer ${accessToken}`);
 
         expect(res.status).toBe(404);
+    });
+
+    it('rejects a malformed order id with 400, not a raw database error', async () => {
+        const { accessToken } = await createAndSignIn();
+
+        const res = await request(app)
+            .get('/api/v1/orders/not-a-uuid')
+            .set('Authorization', `Bearer ${accessToken}`);
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
 });
 
@@ -272,6 +293,57 @@ describe('addresses', () => {
             .set('Authorization', `Bearer ${accessToken}`);
 
         expect(await db.scalar(`SELECT count(*)::int FROM addresses WHERE id = $1`, [foreign.id])).toBe(1);
+    });
+
+    it('rejects a create request missing required fields', async () => {
+        // This route previously took arbitrary body input with no validation
+        // at all — a request could omit every field and still insert a row.
+        const { accessToken } = await createAndSignIn();
+
+        const res = await request(app)
+            .post('/api/v1/address/add')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ city: 'Chennai' });
+
+        expect(res.status).toBe(400);
+        expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    it('rejects a malformed phone number', async () => {
+        const { accessToken } = await createAndSignIn();
+
+        const res = await request(app)
+            .post('/api/v1/address/add')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ ...sample, phone: 'not-a-phone' });
+
+        expect(res.status).toBe(400);
+    });
+
+    it('rejects an update with no fields at all', async () => {
+        const { accessToken, dbUser } = await createAndSignIn();
+        const address = await db.one(
+            `INSERT INTO addresses (user_id, city) VALUES ($1, 'Delhi') RETURNING id`,
+            [dbUser.id]
+        );
+
+        const res = await request(app)
+            .put(`/api/v1/address/${address.id}`)
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({});
+
+        expect(res.status).toBe(400);
+    });
+
+    it('rejects a malformed address id before it ever reaches the database', async () => {
+        const { accessToken } = await createAndSignIn();
+
+        const res = await request(app)
+            .delete('/api/v1/address/not-a-uuid')
+            .set('Authorization', `Bearer ${accessToken}`);
+
+        // Previously this fell through to Postgres as a raw 22P02 error.
+        expect(res.status).toBe(400);
     });
 });
 

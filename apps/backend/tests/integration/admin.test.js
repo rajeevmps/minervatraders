@@ -430,3 +430,52 @@ describe('admin CSV export', () => {
         expect(res.status).toBe(400);
     });
 });
+
+describe('admin settings', () => {
+    it('requires authentication', async () => {
+        expect((await request(app).get('/api/v1/settings')).status).toBe(401);
+    });
+
+    it('requires the admin role', async () => {
+        const { accessToken } = await createAndSignIn();
+        expect(
+            (await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${accessToken}`)).status
+        ).toBe(403);
+    });
+
+    it('writes whitelisted keys and ignores everything else', async () => {
+        const { accessToken } = await createAdminAndSignIn();
+
+        const res = await request(app)
+            .post('/api/v1/settings')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ SUPPORT_EMAIL: 'help@example.test', NOT_A_REAL_SETTING: 'x' });
+
+        expect(res.status).toBe(200);
+        expect(res.body.data.updated).toContain('SUPPORT_EMAIL');
+        expect(res.body.data.rejected).toContain('NOT_A_REAL_SETTING');
+    });
+
+    it('rejects a body that is not a flat string map', async () => {
+        const { accessToken } = await createAdminAndSignIn();
+
+        const res = await request(app)
+            .post('/api/v1/settings')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ SUPPORT_EMAIL: { nested: 'object' } });
+
+        expect(res.status).toBe(400);
+    });
+
+    it('masks the bot token in the response', async () => {
+        const { accessToken } = await createAdminAndSignIn();
+        await request(app)
+            .post('/api/v1/settings')
+            .set('Authorization', `Bearer ${accessToken}`)
+            .send({ TELEGRAM_BOT_TOKEN: '123456:REALSECRETVALUE' });
+
+        const res = await request(app).get('/api/v1/settings').set('Authorization', `Bearer ${accessToken}`);
+
+        expect(JSON.stringify(res.body)).not.toContain('REALSECRETVALUE');
+    });
+});

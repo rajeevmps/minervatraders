@@ -12,19 +12,28 @@ router.get('/stats', adminController.getStats);
 router.get('/audit', adminController.getAuditLogs);
 
 const validate = require('../../middlewares/validate');
-const { createUserSchema, updateUserSchema, grantSubscriptionSchema, revokeSubscriptionSchema, createPlanSchema, updatePlanSchema } = require('./admin.schema');
+const {
+    createUserSchema,
+    updateUserSchema,
+    userIdSchema,
+    grantSubscriptionSchema,
+    revokeSubscriptionSchema,
+    createPlanSchema,
+    updatePlanSchema,
+    planIdSchema,
+} = require('./admin.schema');
 
 // User Management
 router.get('/users', adminController.getUsers);
 router.post('/users', validate(createUserSchema), adminController.createUser);
 router.put('/users/:id', validate(updateUserSchema), adminController.updateUser);
-router.delete('/users/:id', adminController.deleteUser);
+router.delete('/users/:id', validate(userIdSchema), adminController.deleteUser);
 
 // Subscription Plans
 router.get('/plans', adminController.getPlans);
 router.post('/plans', validate(createPlanSchema), adminController.createPlan);
 router.put('/plans/:id', validate(updatePlanSchema), adminController.updatePlan);
-router.delete('/plans/:id', adminController.deletePlan); // Soft Delete
+router.delete('/plans/:id', validate(planIdSchema), adminController.deletePlan); // Soft Delete
 
 // Subscription Management (Actions)
 router.get('/subscriptions', adminController.getSubscriptions);
