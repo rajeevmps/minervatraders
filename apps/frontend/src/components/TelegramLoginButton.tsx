@@ -67,16 +67,37 @@ export function TelegramLoginButton({
     }, [botUsername, buttonSize, cornerRadius, requestAccess]);
 
     if (!botUsername) {
-        // Surfaced rather than silently rendering nothing, since a missing bot
-        // username is a configuration mistake that is otherwise invisible.
-        return (
-            <p className="text-xs text-amber-400/80">
-                Telegram sign-in unavailable: NEXT_PUBLIC_TELEGRAM_BOT_USERNAME is not set.
-            </p>
-        );
+        // A missing bot username is a real configuration gap, but it must not
+        // leak an internal env var name to real visitors in production — that
+        // reads as a broken site, not a diagnostic. Warn developers via the
+        // console (visible in dev, invisible to end users either way) and only
+        // render the on-page message outside production.
+        if (typeof window !== 'undefined') {
+            // eslint-disable-next-line no-console
+            console.warn(
+                'TelegramLoginButton: NEXT_PUBLIC_TELEGRAM_BOT_USERNAME is not set; the Telegram sign-in option is hidden.'
+            );
+        }
+
+        if (process.env.NODE_ENV !== 'production') {
+            return (
+                <p className="text-xs text-amber-400/80">
+                    Telegram sign-in hidden: set NEXT_PUBLIC_TELEGRAM_BOT_USERNAME to enable it.
+                </p>
+            );
+        }
+
+        return null;
     }
 
     return <div ref={containerRef} className="flex justify-center" />;
 }
+
+/**
+ * Single source of truth for "is Telegram sign-in usable right now" — lets a
+ * parent page skip rendering the "Or continue with" divider entirely rather
+ * than showing it over an empty space when no bot is configured.
+ */
+export const isTelegramLoginConfigured = Boolean(process.env.NEXT_PUBLIC_TELEGRAM_BOT_USERNAME);
 
 export default TelegramLoginButton;

@@ -6,7 +6,9 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Button } from '../../components/ui/Button';
 import GlassCard from '../../components/ui/GlassCard';
-import TelegramLoginButton from '../../components/TelegramLoginButton';
+import TelegramLoginButton, {
+    isTelegramLoginConfigured,
+} from '../../components/TelegramLoginButton';
 import { toast } from 'react-hot-toast';
 import type { TelegramLoginPayload } from '@repo/types';
 import { useAuthStore } from '../../store/auth.store';
@@ -120,18 +122,24 @@ export default function RegisterPage() {
                         </Button>
                     </form>
 
-                    <div className="relative">
-                        <div className="absolute inset-0 flex items-center">
-                            <span className="w-full border-t border-white/10" />
-                        </div>
-                        <div className="relative flex justify-center text-xs uppercase">
-                            <span className="bg-[#0f172a] px-2 text-gray-500">Or sign up with</span>
-                        </div>
-                    </div>
+                    {isTelegramLoginConfigured && (
+                        <>
+                            <div className="relative">
+                                <div className="absolute inset-0 flex items-center">
+                                    <span className="w-full border-t border-white/10" />
+                                </div>
+                                <div className="relative flex justify-center text-xs uppercase">
+                                    <span className="bg-[#0f172a] px-2 text-gray-500">
+                                        Or sign up with
+                                    </span>
+                                </div>
+                            </div>
 
-                    <div className="min-h-[48px] flex items-center justify-center">
-                        <TelegramLoginButton onAuth={handleTelegramAuth} />
-                    </div>
+                            <div className="min-h-[48px] flex items-center justify-center">
+                                <TelegramLoginButton onAuth={handleTelegramAuth} />
+                            </div>
+                        </>
+                    )}
 
                     <div className="text-center text-sm">
                         <span className="text-gray-400">Already have an account? </span>

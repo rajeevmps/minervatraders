@@ -9,7 +9,9 @@ import type { TelegramLoginPayload } from '@repo/types';
 
 import { Button } from '../../components/ui/Button';
 import GlassCard from '../../components/ui/GlassCard';
-import TelegramLoginButton from '../../components/TelegramLoginButton';
+import TelegramLoginButton, {
+    isTelegramLoginConfigured,
+} from '../../components/TelegramLoginButton';
 import { useAuthStore } from '../../store/auth.store';
 import { apiErrorMessage } from '../../services/api';
 
@@ -112,26 +114,30 @@ function LoginForm() {
                             </Button>
                         </form>
 
-                        <div className="relative">
-                            <div className="absolute inset-0 flex items-center">
-                                <span className="w-full border-t border-white/10" />
-                            </div>
-                            <div className="relative flex justify-center text-xs uppercase">
-                                <span className="bg-[#0f172a] px-2 text-gray-500">
-                                    Or continue with
-                                </span>
-                            </div>
-                        </div>
+                        {isTelegramLoginConfigured && (
+                            <>
+                                <div className="relative">
+                                    <div className="absolute inset-0 flex items-center">
+                                        <span className="w-full border-t border-white/10" />
+                                    </div>
+                                    <div className="relative flex justify-center text-xs uppercase">
+                                        <span className="bg-[#0f172a] px-2 text-gray-500">
+                                            Or continue with
+                                        </span>
+                                    </div>
+                                </div>
 
-                        {/* Replaces Google OAuth: free, verified, and it supplies the
-                            Telegram id needed to manage channel membership. */}
-                        <div className="min-h-[48px] flex items-center justify-center">
-                            {isTelegramLoading ? (
-                                <span className="text-sm text-gray-400">Signing in…</span>
-                            ) : (
-                                <TelegramLoginButton onAuth={handleTelegramAuth} />
-                            )}
-                        </div>
+                                {/* Replaces Google OAuth: free, verified, and it supplies
+                                    the Telegram id needed to manage channel membership. */}
+                                <div className="min-h-[48px] flex items-center justify-center">
+                                    {isTelegramLoading ? (
+                                        <span className="text-sm text-gray-400">Signing in…</span>
+                                    ) : (
+                                        <TelegramLoginButton onAuth={handleTelegramAuth} />
+                                    )}
+                                </div>
+                            </>
+                        )}
                     </div>
 
                     <div className="text-center text-sm">
