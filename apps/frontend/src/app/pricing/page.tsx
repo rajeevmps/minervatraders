@@ -43,13 +43,32 @@ export default function PricingPage() {
     const [plans, setPlans] = useState<Plan[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [isPageLoading, setIsPageLoading] = useState(true);
+    // Tracks whether the third-party checkout.js has actually finished loading.
+    // Previously nothing tracked this: clicking "Choose Plan" before the script
+    // loaded called `new window.Razorpay(...)` while `window.Razorpay` was still
+    // undefined, throwing and surfacing only as a generic "Failed to initiate
+    // subscription" toast with no indication of the real cause.
+    const [razorpayStatus, setRazorpayStatus] = useState<'loading' | 'ready' | 'failed'>('loading');
 
     // Load Razorpay Script
     useEffect(() => {
+        // Already present (e.g. fast remount) — don't inject a second copy.
+        if (typeof window !== 'undefined' && (window as unknown as { Razorpay?: unknown }).Razorpay) {
+            setRazorpayStatus('ready');
+            return;
+        }
+
         const script = document.createElement('script');
         script.src = 'https://checkout.razorpay.com/v1/checkout.js';
         script.async = true;
+        script.onload = () => setRazorpayStatus('ready');
+        script.onerror = () => setRazorpayStatus('failed');
         document.body.appendChild(script);
+
+        return () => {
+            script.onload = null;
+            script.onerror = null;
+        };
     }, []);
 
     // Fetch Plans from Backend
@@ -92,6 +111,17 @@ export default function PricingPage() {
         if (!isAuthenticated) {
             toast.error('Please login to subscribe');
             router.push('/login');
+            return;
+        }
+
+        if (razorpayStatus === 'failed') {
+            toast.error(
+                'The payment gateway could not load. Check your connection or ad-blocker and try again.'
+            );
+            return;
+        }
+        if (razorpayStatus !== 'ready') {
+            toast.error('Payment gateway is still loading — please try again in a moment.');
             return;
         }
 
@@ -175,7 +205,14 @@ export default function PricingPage() {
             };
 
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const rzp = new (window as any).Razorpay(options);
+            const RazorpayCtor = (window as any).Razorpay;
+            if (!RazorpayCtor) {
+                // Belt-and-suspenders: razorpayStatus said 'ready', but guard
+                // against it anyway rather than letting this throw uncaught.
+                toast.error('Payment gateway is not available right now. Please refresh and try again.');
+                return;
+            }
+            const rzp = new RazorpayCtor(options);
             rzp.open();
         } catch (error: unknown) {
             toast.error(apiErrorMessage(error, 'Failed to initiate subscription'));
@@ -202,6 +239,12 @@ export default function PricingPage() {
                 >
                     Unlock institutional-grade market insights. Join the elite community today.
                 </motion.p>
+                {razorpayStatus === 'failed' && (
+                    <p className="mt-4 text-sm text-amber-400/90">
+                        The payment gateway couldn&apos;t load. Disable any ad-blocker for this site
+                        and refresh the page.
+                    </p>
+                )}
             </div>
 
             <motion.div
