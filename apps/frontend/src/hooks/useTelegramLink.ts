@@ -1,31 +1,43 @@
-import { useState, useEffect } from 'react';
-import axios from 'axios';
+import { useState, useEffect, useCallback } from 'react';
+import type { ApiResponse } from '@repo/types';
+import api from '../services/api';
 import { useAuthStore } from '../store/auth.store';
 
+interface InviteResponse {
+    inviteLink: string;
+    expiresAt?: string;
+}
+
+/**
+ * Fetches the Telegram channel invite for an active subscriber.
+ *
+ * The API returns an existing, still-valid invite when there is one, so calling
+ * this repeatedly does not litter the channel with unused invite links.
+ */
 export function useTelegramLink(subscriptionStatus: string | undefined) {
-    const { token } = useAuthStore();
+    const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+
     const [telegramLink, setTelegramLink] = useState<string | null>(null);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+
+    const fetchLink = useCallback(async () => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const response = await api.get<ApiResponse<InviteResponse>>('/telegram/invite');
+            setTelegramLink(response.data.data?.inviteLink ?? null);
+        } catch {
+            setError('Could not generate your invite link. Please try again.');
+        } finally {
+            setIsLoading(false);
+        }
+    }, []);
 
     useEffect(() => {
-        if (subscriptionStatus === 'active' && token) {
-            const fetchLink = async () => {
-                try {
-                    const response = await axios.get(
-                        `${process.env.NEXT_PUBLIC_API_URL}/telegram/invite`,
-                        { headers: { Authorization: `Bearer ${token}` } }
-                    );
+        if (subscriptionStatus !== 'active' || !isAuthenticated) return;
+        void fetchLink();
+    }, [subscriptionStatus, isAuthenticated, fetchLink]);
 
-                    if (response.data && response.data.inviteLink) {
-                        setTelegramLink(response.data.inviteLink);
-                    }
-                } catch (error) {
-                    console.error('Telegram Invite Error:', error);
-                }
-            };
-
-            fetchLink();
-        }
-    }, [subscriptionStatus, token]);
-
-    return { telegramLink };
+    return { telegramLink, isLoading, error, refetch: fetchLink };
 }

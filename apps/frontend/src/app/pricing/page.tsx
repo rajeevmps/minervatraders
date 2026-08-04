@@ -7,6 +7,7 @@ import PricingCard from '../../components/PricingCard';
 import { useAuthStore } from '../../store/auth.store';
 import { toast } from 'react-hot-toast';
 import axios from 'axios';
+import api, { apiErrorMessage } from '../../services/api';
 
 // Define Plan Interface
 interface Plan {
@@ -15,6 +16,13 @@ interface Plan {
     price: number;
     duration: string;
     features: string[];
+}
+
+/** The subset of Razorpay's order response the checkout widget needs. */
+interface RazorpayOrder {
+    id: string;
+    amount: number;
+    currency: string;
 }
 
 const FALLBACK_FEATURES = {
@@ -90,15 +98,15 @@ export default function PricingPage() {
         setLoadingPlan(plan.id as string);
 
         try {
-            const token = useAuthStore.getState().token;
-            // 1. Create Order
-            const { data: response } = await axios.post(
-                `${process.env.NEXT_PUBLIC_API_URL}/payments/create-order`,
-                { planId: plan.id }, // Now sending UUID!
-                { headers: { Authorization: `Bearer ${token}` } }
+            // All calls go through the shared client: it attaches a live access
+            // token and transparently refreshes it. These call sites previously
+            // used a stale token read straight out of the persisted store.
+            const { data: response } = await api.post<{ data: RazorpayOrder }>(
+                '/payments/create-order',
+                { planId: plan.id }
             );
 
-            const order = response.data; // Unwrap the actual order data
+            const order = response.data;
 
             // 2. Open Razorpay
             const options = {
@@ -113,47 +121,37 @@ export default function PricingPage() {
                     toast.loading('Verifying payment...', { id: 'verify-toast' });
 
                     try {
-                        // 1. Immediate Verification Call
-                        await axios.post(
-                            `${process.env.NEXT_PUBLIC_API_URL}/payments/verify`,
-                            {
-                                orderId: rzpResponse.razorpay_order_id,
-                                paymentId: rzpResponse.razorpay_payment_id,
-                                signature: rzpResponse.razorpay_signature,
-                            },
-                            { headers: { Authorization: `Bearer ${token}` } }
-                        );
+                        await api.post('/payments/verify', {
+                            orderId: rzpResponse.razorpay_order_id,
+                            paymentId: rzpResponse.razorpay_payment_id,
+                            signature: rzpResponse.razorpay_signature,
+                        });
 
-                        toast.success('Payment Verified! Redirecting...', { id: 'verify-toast' });
+                        toast.success('Payment verified! Redirecting…', { id: 'verify-toast' });
                         router.push('/dashboard');
                         return;
-                    } catch (err) {
-                        // If direct verification fails (waiting for webhook), start polling
-                        // eslint-disable-next-line no-console
-                        console.log(
-                            'Direct verification waiting for webhook or failed, starting polling...'
-                        );
+                    } catch {
+                        // Verification and the webhook race each other; if the
+                        // webhook won, fulfilment is already done and the poll
+                        // below will observe it. Activation is idempotent, so
+                        // neither path can double-charge or double-activate.
                     }
 
-                    // 2. Poll for active subscription as fallback
                     const pollInterval = setInterval(async () => {
                         try {
-                            const { data: sub } = await axios.get(
-                                `${process.env.NEXT_PUBLIC_API_URL}/subscriptions`,
-                                { headers: { Authorization: `Bearer ${token}` } }
+                            const { data } = await api.get<{ data?: { status?: string } }>(
+                                '/subscriptions'
                             );
 
-                            // The backend returns the sub object directly or { message: ... }
-                            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                            if (sub && (sub as any).status === 'active') {
+                            if (data.data?.status === 'active') {
                                 clearInterval(pollInterval);
-                                toast.success('Payment Confirmed! Redirecting...', {
+                                toast.success('Payment confirmed! Redirecting…', {
                                     id: 'verify-toast',
                                 });
                                 router.push('/dashboard');
                             }
-                        } catch (e) {
-                            // Ignore errors during polling
+                        } catch {
+                            // Transient failures are expected while polling.
                         }
                     }, 2000);
 
@@ -180,11 +178,7 @@ export default function PricingPage() {
             const rzp = new (window as any).Razorpay(options);
             rzp.open();
         } catch (error: unknown) {
-            const err = error as { response?: { data?: { message?: string } }; message?: string };
-            console.error('Subscription Error:', err);
-            const message =
-                err.response?.data?.message || err.message || 'Failed to initiate subscription';
-            toast.error(message);
+            toast.error(apiErrorMessage(error, 'Failed to initiate subscription'));
         } finally {
             setLoadingPlan(null);
         }

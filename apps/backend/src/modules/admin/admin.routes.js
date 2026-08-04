@@ -1,12 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const adminController = require('./admin.controller');
-const { requireAuth } = require('../../middlewares/auth.middleware'); // New JWT Auth
-const { adminOnly } = require('../../middlewares/admin.middleware');
+const { requireAuth, requireAdmin } = require('../../middlewares/auth.middleware');
 
-// All routes here are protected and admin-only
+// All routes here are protected and admin-only.
 router.use(requireAuth);
-router.use(adminOnly);
+router.use(requireAdmin);
 
 // Dashboard
 router.get('/stats', adminController.getStats);

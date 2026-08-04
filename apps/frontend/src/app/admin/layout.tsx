@@ -4,60 +4,52 @@ import { useEffect, useState } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import Link from 'next/link';
 import { useAuthStore } from '../../store/auth.store';
-import { createClient } from '@supabase/supabase-js';
 import { Loader2, LayoutDashboard, LogOut, Settings, Users, CreditCard, Package, Receipt, Activity, Code } from 'lucide-react';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
-    const { logout } = useAuthStore();
+    const { logout, user, isAuthenticated, isLoading: isAuthLoading } = useAuthStore();
     const router = useRouter();
     const pathname = usePathname();
     const [isLoading, setIsLoading] = useState(true);
     const [isAdmin, setIsAdmin] = useState(false);
-    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
 
     useEffect(() => {
-        const checkAdmin = async () => {
-            // Check auth status via Supabase Auth (Session)
-            const { data: { session } } = await supabase.auth.getSession();
+        // Wait for AuthProvider to finish restoring the session, otherwise the
+        // first render would always look signed-out and bounce the user.
+        if (isAuthLoading) return;
 
-            if (!session) {
-                if (pathname !== '/admin/login') {
-                    router.push('/admin/login');
-                } else {
-                    setIsLoading(false);
-                }
+        if (pathname === '/admin/login') {
+            // Already an admin? Skip the sign-in page.
+            if (isAuthenticated && user?.role === 'admin') {
+                router.replace('/admin/dashboard');
                 return;
             }
-
-            // Check for admin existence
-            const { data: adminApi, error } = await supabase
-                .from('admins')
-                .select('user_id')
-                .eq('user_id', session.user.id)
-                .single();
-
-            if (error || !adminApi) {
-                // Not admin
-                if (pathname !== '/admin/login') {
-                    // Force logout to clear invalid state if any
-                    await supabase.auth.signOut();
-                    logout();
-                    router.push('/admin/login?error=not_admin');
-                }
-                setIsAdmin(false);
-            } else {
-                setIsAdmin(true);
-                if (pathname === '/admin/login') {
-                    router.push('/admin/dashboard');
-                }
-            }
+            setIsAdmin(false);
             setIsLoading(false);
-        };
+            return;
+        }
 
-        checkAdmin();
-    }, [router, pathname, logout, supabase]);
+        if (!isAuthenticated) {
+            router.replace('/admin/login');
+            return;
+        }
 
-    if (isLoading) {
+        // Role comes from the API's /auth/me response. The browser previously
+        // queried the `admins` table directly using the public anon key, which
+        // made the admin roster readable by anyone.
+        if (user?.role !== 'admin') {
+            void logout();
+            router.replace('/admin/login?error=not_admin');
+            setIsAdmin(false);
+            setIsLoading(false);
+            return;
+        }
+
+        setIsAdmin(true);
+        setIsLoading(false);
+    }, [router, pathname, logout, user, isAuthenticated, isAuthLoading]);
+
+    if (isAuthLoading || isLoading) {
         return (
             <div className="min-h-screen bg-slate-950 flex items-center justify-center">
                 <Loader2 className="w-8 h-8 text-primary animate-spin" />
@@ -137,7 +129,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
                     ))}
 
                     <button
-                        onClick={() => { logout(); router.push('/admin/login'); }}
+                        onClick={async () => { await logout(); router.push('/admin/login'); }}
                         className="flex items-center space-x-3 px-4 py-3 rounded-lg transition-colors hover:bg-slate-800 text-slate-400 hover:text-red-400 w-full text-left mt-2"
                     >
                         <LogOut className="w-5 h-5" />

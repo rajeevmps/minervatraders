@@ -4,6 +4,7 @@ import { Toaster } from 'react-hot-toast';
 import '../styles/globals.css';
 import Navbar from '../components/Navbar';
 import Footer from '../components/Footer';
+import AuthProvider from '../components/AuthProvider';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-inter' });
 
@@ -20,11 +21,15 @@ export default function RootLayout({
     return (
         <html lang="en" className="dark">
             <body className={`${inter.variable} font-sans bg-background text-foreground min-h-screen flex flex-col antialiased selection:bg-primary selection:text-white`}>
-                <Navbar />
-                <main className="flex-grow relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-                    {children}
-                </main>
-                <Footer />
+                {/* Restores the session from the httpOnly refresh cookie before
+                    any page decides whether the visitor is signed in. */}
+                <AuthProvider>
+                    <Navbar />
+                    <main className="flex-grow relative z-10 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+                        {children}
+                    </main>
+                    <Footer />
+                </AuthProvider>
                 <Toaster position="bottom-center" toastOptions={{
                     style: {
                         background: '#1E293B',

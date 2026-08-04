@@ -1,93 +1,70 @@
 import api from './api';
-import { User, ApiResponse, LoginCredentials } from '@repo/types';
-import { supabase } from '../lib/supabase';
+import type {
+    ApiResponse,
+    AuthResponse,
+    LoginCredentials,
+    RegisterCredentials,
+    TelegramLoginPayload,
+    User,
+} from '@repo/types';
+import { setAccessToken, clearAccessToken } from '../lib/session';
+
+/**
+ * Authentication against our own API. Replaces the Supabase client entirely.
+ *
+ * Every call that establishes a session stores the access token in memory; the
+ * refresh token is set by the server as an httpOnly cookie and is never visible
+ * to this code.
+ */
+
+const unwrap = <T>(response: { data: ApiResponse<T> }): T => response.data.data as T;
 
 export const authService = {
-    /**
-     * Login user with email and password.
-     */
-    login: async (credentials: LoginCredentials): Promise<{ user: User; token: string }> => {
-        const { data, error } = await supabase.auth.signInWithPassword({
-            email: credentials.email!,
-            password: credentials.password!,
-        });
-
-        if (error) throw error;
-
-        // Fetch custom user profile if needed, or map session user
-        const user: User = {
-            id: data.user.id,
-            email: data.user.email!,
-            role: 'user', // Default, should be enhanced with actual role fetch if ready
-            createdAt: data.user.created_at,
-        };
-
-        return { user, token: data.session.access_token };
+    async login(credentials: LoginCredentials): Promise<User> {
+        const session = unwrap(await api.post<ApiResponse<AuthResponse>>('/auth/login', credentials));
+        setAccessToken(session.accessToken);
+        return session.user;
     },
 
-    /**
-     * Register new user.
-     */
-    register: async (credentials: LoginCredentials): Promise<{ user: User; token: string }> => {
-        const { data, error } = await supabase.auth.signUp({
-            email: credentials.email!,
-            password: credentials.password!,
-        });
-
-        if (error) throw error;
-
-        // For sign-up, session might be null depending on email confirmation settings
-        if (!data.session)
-            throw new Error('Registration successful. Please check your email to confirm.');
-
-        const user: User = {
-            id: data.user!.id,
-            email: data.user!.email!,
-            role: 'user',
-            createdAt: data.user!.created_at,
-        };
-
-        return { user, token: data.session.access_token };
+    async register(credentials: RegisterCredentials): Promise<User> {
+        const session = unwrap(
+            await api.post<ApiResponse<AuthResponse>>('/auth/register', credentials)
+        );
+        setAccessToken(session.accessToken);
+        return session.user;
     },
 
-    /**
-     * Logout user.
-     * Clears Supabase session.
-     */
-    logout: async (): Promise<void> => {
-        await supabase.auth.signOut();
+    /** Sign in (or transparently sign up) with a Telegram Login Widget payload. */
+    async loginWithTelegram(payload: TelegramLoginPayload): Promise<User> {
+        const session = unwrap(
+            await api.post<ApiResponse<AuthResponse>>('/auth/telegram', payload)
+        );
+        setAccessToken(session.accessToken);
+        return session.user;
     },
 
-    /**
-     * Get current session info (if needed for initial load).
-     */
-    getSession: async (): Promise<User | null> => {
-        const {
-            data: { session },
-        } = await supabase.auth.getSession();
+    /** Attach a Telegram identity to the account already signed in. */
+    async linkTelegram(payload: TelegramLoginPayload): Promise<User> {
+        return unwrap(await api.post<ApiResponse<User>>('/auth/link-telegram', payload));
+    },
 
-        if (session?.user) {
-            // Map Supabase user to our User type
-            return {
-                id: session.user.id,
-                email: session.user.email!,
-                role: 'user', // Default or fetch from public.users table
-                provider: session.user.app_metadata.provider as 'email' | 'google' | 'github',
-                createdAt: session.user.created_at,
-            };
+    async logout(): Promise<void> {
+        try {
+            await api.post('/auth/logout');
+        } finally {
+            // Clear locally even if the network call fails, so the UI never
+            // shows a signed-in state the user asked to leave.
+            clearAccessToken();
         }
-        return null;
     },
 
-    getProfile: async (): Promise<User> => {
-        const response = await api.get<ApiResponse<User>>('/auth/me');
-        return response.data.data;
+    async getProfile(): Promise<User> {
+        return unwrap(await api.get<ApiResponse<User>>('/auth/me'));
     },
 
-    /**
-     * Sync user profile with backend.
-     */
-    syncUser: async (user: Record<string, unknown>): Promise<void> => {
-        await api.post('/auth/sync', user);
+    async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+        await api.post('/auth/change-password', { currentPassword, newPassword });
+        // The server revokes every session on password change.
+        clearAccessToken();
     },
 };

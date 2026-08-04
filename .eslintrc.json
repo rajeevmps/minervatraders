@@ -46,5 +46,25 @@
         ],
         "react/react-in-jsx-scope": "off",
         "react/prop-types": "off"
-    }
+    },
+    "overrides": [
+        {
+            // Plain CommonJS Node tooling — TypeScript module rules do not apply,
+            // and these scripts are meant to print to the console.
+            "files": [
+                "scripts/**/*.js"
+            ],
+            "env": {
+                "node": true,
+                "browser": false
+            },
+            "parserOptions": {
+                "sourceType": "script"
+            },
+            "rules": {
+                "@typescript-eslint/no-var-requires": "off",
+                "no-console": "off"
+            }
+        }
+    ]
 }

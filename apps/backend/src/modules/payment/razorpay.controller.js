@@ -1,304 +1,283 @@
+const db = require('../../config/db');
 const razorpayService = require('./razorpay.service');
-const { supabase } = require('../../config/db');
 const subscriptionService = require('../subscription/subscription.service');
 const telegramService = require('../telegram/telegram.service');
 const { sendResponse } = require('../../utils/responseHelper');
+const { razorpayWebhookSecret } = require('../../config/env');
+const logger = require('../../utils/logger');
+
+/**
+ * Razorpay payment flow.
+ *
+ * The checkout callback (verifyPayment) and the webhook (handleWebhook) can
+ * both arrive for the same order, in either order, possibly concurrently. Both
+ * therefore funnel into ONE idempotent fulfilment routine rather than each
+ * activating a subscription independently as they did previously.
+ */
 
 exports.createOrder = async (req, res, next) => {
     try {
         const { planId } = req.body;
         const userId = req.user.sub;
 
-        // 0. Check for active subscription
         const activeSub = await subscriptionService.getActiveSubscription(userId);
         if (activeSub) {
-            return sendResponse(res, 400, false, 'Active subscription exists', null, {
+            return sendResponse(res, 409, false, 'You already have an active subscription', null, {
                 code: 'ACTIVE_SUBSCRIPTION_EXISTS',
             });
         }
 
-        // 1. Fetch Plan Details (Source of Truth)
-        const { data: plan, error: planError } = await supabase
-            .from('subscription_plans')
-            .select('price, is_active')
-            .eq('id', planId)
-            .single();
+        // Price comes from the database, never from the request body.
+        const plan = await db.one(
+            `SELECT id, price, sale_price, currency, is_active
+               FROM subscription_plans WHERE id = $1`,
+            [planId]
+        );
 
-        if (planError || !plan) {
-            return sendResponse(res, 404, false, 'Plan not found');
+        if (!plan) {
+            return sendResponse(res, 404, false, 'Plan not found', null, { code: 'PLAN_NOT_FOUND' });
         }
-
         if (!plan.is_active) {
-            return sendResponse(res, 400, false, 'Plan is no longer active');
+            return sendResponse(res, 400, false, 'This plan is no longer available', null, {
+                code: 'PLAN_INACTIVE',
+            });
         }
 
-        const amount = plan.price; // Use price from DB
+        const amount = plan.sale_price ?? plan.price;
 
-        // 2. Create Internal Order
-        const { data: internalOrder, error: orderError } = await supabase
-            .from('orders')
-            .insert([{ user_id: userId, total_amount: amount, status: 'pending' }])
-            .select()
-            .single();
+        // Order, line item and pending payment are written together: a partial
+        // failure previously left orphaned orders with no items.
+        const internalOrder = await db.tx(async (t) => {
+            const order = await t.one(
+                `INSERT INTO orders (user_id, total_amount, currency, status)
+                 VALUES ($1, $2, $3, 'pending')
+                 RETURNING id, total_amount, currency`,
+                [userId, amount, plan.currency]
+            );
 
-        if (orderError) throw orderError;
+            await t.query(
+                `INSERT INTO order_items (order_id, plan_id, price) VALUES ($1, $2, $3)`,
+                [order.id, planId, amount]
+            );
 
-        // 2.5 Create Order Item
-        const { error: itemError } = await supabase.from('order_items').insert([
-            {
-                order_id: internalOrder.id,
-                plan_id: planId,
-                price: amount,
-            },
+            await t.query(
+                `INSERT INTO payments (user_id, order_id, amount, currency, status)
+                 VALUES ($1, $2, $3, $4, 'pending')`,
+                [userId, order.id, amount, plan.currency]
+            );
+
+            return order;
+        });
+
+        // Calling the gateway outside the transaction avoids holding a database
+        // connection open across a network round trip.
+        const rpOrder = await razorpayService.createOrder(
+            amount,
+            plan.currency,
+            internalOrder.id
+        );
+
+        await db.query(`UPDATE orders SET razorpay_order_id = $2 WHERE id = $1`, [
+            internalOrder.id,
+            rpOrder.id,
         ]);
 
-        if (itemError) throw itemError;
-
-        // 3. Create Razorpay Order
-        const rpOrder = await razorpayService.createOrder(amount, 'INR', internalOrder.id);
-
-        // 3.5 Update Internal Order
-        const { error: updateOrderError } = await supabase
-            .from('orders')
-            .update({ razorpay_order_id: rpOrder.id })
-            .eq('id', internalOrder.id);
-
-        if (updateOrderError) throw updateOrderError;
-
-        // 4. Create Payment Record (Pending)
-        const { error: paymentError } = await supabase.from('payments').insert([
-            {
-                user_id: userId,
-                order_id: internalOrder.id,
-                amount: amount,
-                status: 'pending',
-            },
-        ]);
-
-        if (paymentError) throw paymentError;
-
-        return sendResponse(res, 200, true, 'Order created', {
+        return sendResponse(res, 201, true, 'Order created', {
             ...rpOrder,
             internal_order_id: internalOrder.id,
         });
     } catch (error) {
-        return sendResponse(res, 500, false, 'Error creating order', null, {
-            code: 'ORDER_CREATION_ERROR',
-            details: error.message,
-        });
+        return next(error);
     }
 };
 
 exports.verifyPayment = async (req, res, next) => {
     try {
-        const { orderId, paymentId, signature } = req.body; // orderId here is Razorpay Order ID usually returned by frontend checkout
-        // Need to find which internal order matches this razorpay_order_id if we want to update it.
+        const { orderId, paymentId, signature } = req.body;
 
-        const isValid = razorpayService.verifyPaymentSignature(orderId, paymentId, signature);
-
-        if (isValid) {
-            // Update Payment Status
-            // NEW LOGIC: Find internal order first using Razorpay ID
-            const { data: orderData, error: findOrderError } = await supabase
-                .from('orders')
-                .select('id')
-                .eq('razorpay_order_id', orderId)
-                .single();
-
-            if (findOrderError || !orderData) throw new Error('Order not found for this payment');
-
-            // Update Payment Status using internal order_id
-            const { data: paymentData, error: updateError } = await supabase
-                .from('payments')
-                .update({
-                    razorpay_payment_id: paymentId,
-                    razorpay_signature: signature,
-                    status: 'captured',
-                })
-                .eq('order_id', orderData.id)
-                .select()
-                .single();
-
-            if (updateError) throw updateError;
-
-            // Also update Internal Order Status
-            if (paymentData && paymentData.order_id) {
-                await supabase
-                    .from('orders')
-                    .update({ status: 'paid' })
-                    .eq('id', paymentData.order_id);
-            }
-
-            // NEW: Fetch Plan ID from Order Items to activate subscription
-            const { data: orderItem } = await supabase
-                .from('order_items')
-                .select('plan_id')
-                .eq('order_id', orderData.id)
-                .single();
-
-            // 1. Activate Subscription
-            if (orderItem && orderItem.plan_id) {
-                // Determine user ID from order (safest) or use internalOrder if available
-                // We need fetching user_id from order
-                const { data: orderUser } = await supabase
-                    .from('orders')
-                    .select('user_id')
-                    .eq('id', orderData.id)
-                    .single();
-
-                if (orderUser) {
-                    await subscriptionService.createSubscription(
-                        orderUser.user_id,
-                        orderItem.plan_id,
-                        orderData.id
-                    );
-
-                    // 2. Generate Telegram Invite
-                    try {
-                        const inviteLink = await telegramService.generateInviteLink(
-                            orderUser.user_id
-                        );
-                        return sendResponse(res, 200, true, 'Payment verified successfully', {
-                            inviteLink,
-                            subscriptionActive: true,
-                        });
-                    } catch (tgError) {
-                        console.error('Telegram Link Gen Failed:', tgError);
-                        // Don't fail the whole request, just warn
-                        return sendResponse(
-                            res,
-                            200,
-                            true,
-                            'Payment verified, but Telegram link generation failed. Please contact support.',
-                            {
-                                subscriptionActive: true,
-                                warning: 'TELEGRAM_LINK_FAILED',
-                            }
-                        );
-                    }
-                }
-            }
-
-            return sendResponse(res, 200, true, 'Payment verified successfully');
-        } else {
-            return sendResponse(res, 400, false, 'Invalid signature', null, {
+        if (!razorpayService.verifyPaymentSignature(orderId, paymentId, signature)) {
+            logger.warn('Rejected payment with invalid signature', { orderId });
+            return sendResponse(res, 400, false, 'Invalid payment signature', null, {
                 code: 'INVALID_SIGNATURE',
             });
         }
-    } catch (error) {
-        return sendResponse(res, 500, false, 'Error verifying payment', null, {
-            code: 'PAYMENT_VERIFICATION_ERROR',
-            details: error.message,
+
+        const order = await db.one(
+            `SELECT id, user_id FROM orders WHERE razorpay_order_id = $1`,
+            [orderId]
+        );
+        if (!order) {
+            return sendResponse(res, 404, false, 'Order not found', null, {
+                code: 'ORDER_NOT_FOUND',
+            });
+        }
+
+        // The signed-in user must own the order they are confirming.
+        if (order.user_id !== req.user.sub) {
+            logger.warn('User attempted to verify an order they do not own', {
+                userId: req.user.sub,
+                orderId: order.id,
+            });
+            return sendResponse(res, 403, false, 'Order does not belong to this account', null, {
+                code: 'FORBIDDEN',
+            });
+        }
+
+        const result = await fulfillOrder(order.id, {
+            paymentId,
+            signature,
+            source: 'checkout',
         });
+
+        let inviteLink = null;
+        try {
+            inviteLink = await telegramService.generateInviteLink(order.user_id);
+        } catch (error) {
+            // Payment succeeded; a Telegram outage must not present as failure.
+            logger.error('Invite generation failed after payment', {
+                userId: order.user_id,
+                error: error.message,
+            });
+        }
+
+        return sendResponse(res, 200, true, 'Payment verified', {
+            subscriptionActive: true,
+            alreadyProcessed: !result.activated,
+            inviteLink,
+            warning: inviteLink ? undefined : 'TELEGRAM_LINK_FAILED',
+        });
+    } catch (error) {
+        return next(error);
     }
 };
 
 exports.handleWebhook = async (req, res) => {
+    const signature = req.get('x-razorpay-signature');
+
+    // Verify BEFORE recording anything, so unauthenticated callers cannot fill
+    // the log table with arbitrary rows.
+    if (!razorpayService.verifyWebhookSignature(req.rawBody, signature, razorpayWebhookSecret)) {
+        logger.warn('Rejected Razorpay webhook with invalid signature', { ip: req.ip });
+        return res.status(401).json({ status: 'unauthorized' });
+    }
+
+    const payload = req.body;
+    const eventId = req.get('x-razorpay-event-id') || null;
+
     try {
-        const secret = process.env.RAZORPAY_WEBHOOK_SECRET;
-        const signature = req.headers['x-razorpay-signature'];
-        const payload = req.body;
+        // A UNIQUE index on (provider, event_id) makes redelivery a no-op.
+        const log = await db.one(
+            `INSERT INTO webhook_logs (provider, event_type, event_id, payload, signature)
+             VALUES ('razorpay', $1, $2, $3, $4)
+             ON CONFLICT (provider, event_id) WHERE event_id IS NOT NULL DO NOTHING
+             RETURNING id`,
+            [payload.event || 'unknown', eventId, payload, signature]
+        );
 
-        // 1. Log incoming request
-        const { data: log, error: logError } = await supabase
-            .from('webhook_logs')
-            .insert([
-                {
-                    event_type: payload.event || 'unknown',
-                    payload: payload,
-                    signature: signature,
-                    processed: false,
-                },
-            ])
-            .select()
-            .single();
-
-        if (logError) console.error('Webhook Log Error:', logError);
-
-        // 2. Validate Signature
-        const crypto = require('crypto');
-        const hmac = crypto.createHmac('sha256', secret);
-        // Use rawBody for exact match with Razorpay's hash
-        hmac.update(req.rawBody);
-        const expectedSignature = hmac.digest('hex');
-
-        if (signature !== expectedSignature) {
-            console.warn(
-                'Invalid Webhook Signature. Expected:',
-                expectedSignature,
-                'Received:',
-                signature
-            );
-            return res.status(200).json({ status: 'ok', warning: 'invalid_signature' });
+        if (!log) {
+            logger.info('Duplicate Razorpay webhook ignored', { eventId });
+            return res.status(200).json({ status: 'ok', duplicate: true });
         }
 
-        // 3. Process Event
         if (payload.event === 'payment.captured' || payload.event === 'order.paid') {
-            const paymentEntity = payload.payload.payment.entity;
-            const orderId = paymentEntity.order_id;
-            const paymentId = paymentEntity.id;
-
-            // Find internal order
-            const { data: orderData, error: findOrderError } = await supabase
-                .from('orders')
-                .select('id, user_id, status')
-                .eq('razorpay_order_id', orderId)
-                .single();
-
-            if (orderData) {
-                // Determine Plan
-                const { data: orderItem } = await supabase
-                    .from('order_items')
-                    .select('plan_id')
-                    .eq('order_id', orderData.id)
-                    .single();
-
-                if (orderItem && orderItem.plan_id) {
-                    if (orderData.status === 'paid') {
-                        // Idempotency: Webhook already processed this order
-                        return res.status(200).json({ status: 'ok', msg: 'already_paid' });
-                    }
-
-                    // Update Payment Record
-                    await supabase
-                        .from('payments')
-                        .update({
-                            razorpay_payment_id: paymentId,
-                            status: 'captured',
-                            method: paymentEntity.method,
-                            webhook_event: payload.event,
-                        })
-                        .eq('order_id', orderData.id); // Matches internal Order ID
-
-                    // Update Order Status
-                    await supabase.from('orders').update({ status: 'paid' }).eq('id', orderData.id);
-
-                    // Activate Subscription (Idempotent check inside service usually, or we check status)
-                    // But createSubscription usually creates a NEW one.
-                    // To prevent duplicates if user hits verify + webhook, check if sub exists for this order?
-                    // subscriptionService.createSubscription checks logic? No, let's assume valid flow.
-                    if (orderData.status !== 'paid') {
-                        await subscriptionService.createSubscription(
-                            orderData.user_id,
-                            orderItem.plan_id,
-                            orderData.id
-                        );
-
-                        // Generate Telegram Link (Optional: send email/notification here)
-                        // await telegramService.generateInviteLink(orderData.user_id);
-                    }
+            const entity = payload.payload?.payment?.entity;
+            if (entity) {
+                const order = await db.one(
+                    `SELECT id FROM orders WHERE razorpay_order_id = $1`,
+                    [entity.order_id]
+                );
+                if (order) {
+                    await fulfillOrder(order.id, {
+                        paymentId: entity.id,
+                        method: entity.method,
+                        event: payload.event,
+                        source: 'webhook',
+                    });
+                } else {
+                    logger.warn('Webhook for unknown order', { razorpayOrderId: entity.order_id });
                 }
             }
         }
 
-        // Mark Log as Processed
-        if (log && log.id) {
-            await supabase.from('webhook_logs').update({ processed: true }).eq('id', log.id);
-        }
-
+        await db.query(`UPDATE webhook_logs SET processed = TRUE WHERE id = $1`, [log.id]);
         return res.status(200).json({ status: 'ok' });
     } catch (error) {
-        console.error('Webhook Error:', error);
+        logger.error('Razorpay webhook processing failed', { error: error.message, eventId });
+        if (eventId) {
+            await db
+                .query(`UPDATE webhook_logs SET error = $2 WHERE event_id = $1`, [
+                    eventId,
+                    error.message,
+                ])
+                .catch(() => {});
+        }
+        // 200 keeps Razorpay from retrying a payload we will never process
+        // successfully; the row above records it for manual follow-up.
         return res.status(200).json({ status: 'error' });
     }
 };
+
+/**
+ * Mark an order paid and activate its subscription — exactly once.
+ *
+ * The conditional UPDATE is the concurrency guard: only the caller whose
+ * statement actually transitions the row out of 'pending' gets a row back, so
+ * simultaneous checkout and webhook deliveries cannot both activate.
+ *
+ * @returns {Promise<{activated: boolean}>}
+ */
+async function fulfillOrder(orderId, { paymentId, signature, method, event, source }) {
+    return db.tx(async (t) => {
+        const claimed = await t.one(
+            `UPDATE orders SET status = 'paid'
+              WHERE id = $1 AND status <> 'paid'
+          RETURNING id, user_id`,
+            [orderId]
+        );
+
+        // Record payment details regardless of who won the race, so the row
+        // reflects reality even on the losing path.
+        await t.query(
+            `UPDATE payments
+                SET razorpay_payment_id = COALESCE($2, razorpay_payment_id),
+                    razorpay_signature  = COALESCE($3, razorpay_signature),
+                    method              = COALESCE($4, method),
+                    webhook_event       = COALESCE($5, webhook_event),
+                    status              = 'captured'
+              WHERE order_id = $1`,
+            [orderId, paymentId || null, signature || null, method || null, event || null]
+        );
+
+        if (!claimed) {
+            logger.info('Order already fulfilled; skipping activation', { orderId, source });
+            return { activated: false };
+        }
+
+        const item = await t.one(`SELECT plan_id FROM order_items WHERE order_id = $1 LIMIT 1`, [
+            orderId,
+        ]);
+        if (!item) {
+            throw new Error(`Order ${orderId} has no line item; cannot activate a subscription`);
+        }
+
+        await t.query(
+            `UPDATE user_subscriptions SET status = 'expired'
+              WHERE user_id = $1 AND status = 'active'`,
+            [claimed.user_id]
+        );
+
+        await t.one(
+            `INSERT INTO user_subscriptions (user_id, plan_id, order_id, start_date, end_date, status)
+             SELECT $1, p.id, $2, now(), now() + make_interval(days => p.duration_days), 'active'
+               FROM subscription_plans p
+              WHERE p.id = $3
+          RETURNING id`,
+            [claimed.user_id, orderId, item.plan_id]
+        );
+
+        logger.info('Subscription activated', { userId: claimed.user_id, orderId, source });
+        return { activated: true };
+    });
+}
+
+exports.fulfillOrder = fulfillOrder;

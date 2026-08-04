@@ -95,7 +95,7 @@ export default function DashboardPage() {
                                         <div className="flex justify-between text-sm">
                                             <span className="text-gray-400">Renewal Date</span>
                                             <span className="text-white font-medium">
-                                                {new Date(subscription.end_date).toLocaleDateString('en-GB', {
+                                                {new Date(subscription.endDate).toLocaleDateString('en-GB', {
                                                     day: 'numeric',
                                                     month: 'short',
                                                     year: 'numeric'
@@ -105,9 +105,9 @@ export default function DashboardPage() {
 
                                         {/* Dynamic Progress Bar */}
                                         {(() => {
-                                            const start = new Date(subscription.start_date || new Date().toISOString());
+                                            const start = new Date(subscription.startDate || new Date().toISOString());
 
-                                            const end = new Date(subscription.end_date);
+                                            const end = new Date(subscription.endDate);
                                             const today = new Date();
 
                                             const totalDuration = end.getTime() - start.getTime();

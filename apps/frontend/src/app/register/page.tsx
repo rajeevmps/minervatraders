@@ -6,11 +6,17 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import { Button } from '../../components/ui/Button';
 import GlassCard from '../../components/ui/GlassCard';
-import { supabase } from '../../lib/supabase';
+import TelegramLoginButton from '../../components/TelegramLoginButton';
 import { toast } from 'react-hot-toast';
+import type { TelegramLoginPayload } from '@repo/types';
+import { useAuthStore } from '../../store/auth.store';
+import { apiErrorMessage } from '../../services/api';
 
 export default function RegisterPage() {
     const router = useRouter();
+    const registerUser = useAuthStore((state) => state.register);
+    const loginWithTelegram = useAuthStore((state) => state.loginWithTelegram);
+
     const [isLoading, setIsLoading] = useState(false);
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -21,27 +27,26 @@ export default function RegisterPage() {
         setIsLoading(true);
 
         try {
-            const { data, error } = await supabase.auth.signUp({
-                email,
-                password,
-                options: {
-                    data: {
-                        full_name: fullName,
-                    },
-                },
-            });
+            // Registration signs the user straight in — there is no email
+            // confirmation step, so bouncing them to /login would be a dead end.
+            await registerUser({ email, password, fullName });
+            toast.success('Account created. Welcome!');
+            router.push('/dashboard');
+        } catch (error) {
+            toast.error(apiErrorMessage(error, 'Failed to create account'));
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-            if (error) throw error;
-
-            if (data.user) {
-                toast.success('Account created! Please verify your email.');
-                // Optionally redirect to login or show detailed success message
-                router.push('/login');
-            }
-        } catch (error: unknown) {
-            const err = error as Error;
-            console.error('Signup Error:', err);
-            toast.error(err.message || 'Failed to create account');
+    const handleTelegramAuth = async (payload: TelegramLoginPayload) => {
+        setIsLoading(true);
+        try {
+            await loginWithTelegram(payload);
+            toast.success('Signed in with Telegram');
+            router.push('/dashboard');
+        } catch (error) {
+            toast.error(apiErrorMessage(error, 'Telegram sign-in failed'));
         } finally {
             setIsLoading(false);
         }
@@ -99,9 +104,11 @@ export default function RegisterPage() {
                                 value={password}
                                 onChange={(e) => setPassword(e.target.value)}
                                 required
-                                minLength={6}
+                                // Must match the server policy in utils/validators.
+                                minLength={10}
                                 className="w-full bg-slate-800/50 border border-white/10 rounded-lg px-4 py-3 text-white placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all font-medium"
                             />
+                            <p className="mt-1 text-xs text-gray-500">At least 10 characters.</p>
                         </div>
                         <Button
                             type="submit"
@@ -112,6 +119,19 @@ export default function RegisterPage() {
                             Sign Up
                         </Button>
                     </form>
+
+                    <div className="relative">
+                        <div className="absolute inset-0 flex items-center">
+                            <span className="w-full border-t border-white/10" />
+                        </div>
+                        <div className="relative flex justify-center text-xs uppercase">
+                            <span className="bg-[#0f172a] px-2 text-gray-500">Or sign up with</span>
+                        </div>
+                    </div>
+
+                    <div className="min-h-[48px] flex items-center justify-center">
+                        <TelegramLoginButton onAuth={handleTelegramAuth} />
+                    </div>
 
                     <div className="text-center text-sm">
                         <span className="text-gray-400">Already have an account? </span>

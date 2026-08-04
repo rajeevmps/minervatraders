@@ -15,8 +15,18 @@
         "no-unused-vars": [
             "warn",
             {
-                "argsIgnorePattern": "^next$"
+                "argsIgnorePattern": "^(next|_)",
+                "varsIgnorePattern": "^_",
+                "ignoreRestSiblings": true
             }
         ]
-    }
+    },
+    "overrides": [
+        {
+            "files": ["scripts/**/*.js", "migrations/**/*.js", "tests/**/*.js"],
+            "rules": {
+                "no-console": "off"
+            }
+        }
+    ]
 }

@@ -1,15 +1,7 @@
-const { supabase } = require('../../config/db');
+const userRepository = require('./user.repository');
 
-exports.getUserById = async (userId) => {
-    const { data: user, error } = await supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
-
-    if (error) {
-        throw error;
-    }
-
-    return user;
-};
+/**
+ * Returns the public profile projection — password_hash is never included,
+ * because the repository's default projection excludes it.
+ */
+exports.getUserById = (userId) => userRepository.findById(userId);

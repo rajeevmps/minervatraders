@@ -1,34 +1,90 @@
 const subscriptionService = require('./subscription.service');
 const { sendResponse } = require('../../utils/responseHelper');
 
+/**
+ * Presenters map snake_case database columns to the camelCase shape declared in
+ * @repo/types. Without this the API would be inconsistent — /auth/me already
+ * returned camelCase while these endpoints leaked raw column names.
+ */
+
+const presentPlan = (plan) =>
+    !plan
+        ? null
+        : {
+              id: plan.id,
+              name: plan.name,
+              description: plan.description ?? null,
+              price: plan.price,
+              salePrice: plan.sale_price ?? null,
+              currency: plan.currency,
+              durationDays: plan.duration_days,
+              isActive: plan.is_active,
+          };
+
+const presentSubscription = (subscription) =>
+    !subscription
+        ? null
+        : {
+              id: subscription.id,
+              userId: subscription.user_id,
+              planId: subscription.plan_id,
+              status: subscription.status,
+              startDate: subscription.start_date,
+              endDate: subscription.end_date,
+              plan: subscription.plan ? presentPlan(subscription.plan) : undefined,
+          };
+
 exports.getSubscriptions = async (req, res, next) => {
     try {
-        const sub = await subscriptionService.getActiveSubscription(req.user.id);
-        if (!sub) return res.status(200).json({ message: 'No active subscription' });
-        res.status(200).json(sub);
+        const subscription = await subscriptionService.getActiveSubscription(req.user.id);
+        return sendResponse(
+            res,
+            200,
+            true,
+            subscription ? 'Active subscription found' : 'No active subscription',
+            presentSubscription(subscription)
+        );
     } catch (error) {
-        next(error);
+        return next(error);
     }
-}
+};
 
+exports.getHistory = async (req, res, next) => {
+    try {
+        const history = await subscriptionService.getSubscriptionHistory(req.user.id);
+        return sendResponse(res, 200, true, 'Subscription history fetched', history.map(presentSubscription));
+    } catch (error) {
+        return next(error);
+    }
+};
 
 exports.getPlans = async (req, res, next) => {
     try {
         const plans = await subscriptionService.getAllPlans();
-        return sendResponse(res, 200, true, 'Plans fetched successfully', plans);
+        return sendResponse(res, 200, true, 'Plans fetched successfully', plans.map(presentPlan));
     } catch (error) {
-        next(error);
+        return next(error);
     }
 };
 
-// Manually create (mostly for admins or testing, real flow is via Webhook)
-exports.createSubscription = async (req, res, next) => {
+exports.cancelSubscription = async (req, res, next) => {
     try {
-        const { planId } = req.body;
-        // In real flow, verify payment first.
-        const sub = await subscriptionService.createSubscription(req.user.id, planId, null);
-        res.status(201).json(sub);
+        const cancelled = await subscriptionService.cancelSubscription(req.user.id, req.params.id);
+        if (!cancelled) {
+            return sendResponse(res, 404, false, 'No active subscription with that id', null, {
+                code: 'NOT_FOUND',
+            });
+        }
+        return sendResponse(res, 200, true, 'Subscription cancelled', presentSubscription(cancelled));
     } catch (error) {
-        next(error);
+        return next(error);
     }
 };
+
+// `createSubscription` is deliberately not exposed. It previously sat behind
+// `requireAuth` only, so any signed-in user could POST a planId and grant
+// themselves a paid subscription for free. Subscriptions are now created solely
+// by the payment fulfilment path, or by an admin via /admin/subscriptions/grant.
+
+exports.presentSubscription = presentSubscription;
+exports.presentPlan = presentPlan;

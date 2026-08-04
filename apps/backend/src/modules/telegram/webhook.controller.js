@@ -1,110 +1,145 @@
+const db = require('../../config/db');
 const telegramService = require('./telegram.service');
-const { supabase } = require('../../config/db');
 const subscriptionService = require('../subscription/subscription.service');
+const logger = require('../../utils/logger');
 
-// Handle incoming Telegram updates
+/**
+ * Telegram Bot API webhook.
+ *
+ * Always answers 200, even on failure — a non-2xx makes Telegram retry the same
+ * update indefinitely. Failures are logged instead.
+ *
+ * Authenticity is established by the secret-token header check in the route
+ * (verifyTelegramWebhook), not here.
+ */
 exports.handleTelegramWebhook = async (req, res) => {
     try {
         const update = req.body;
-        console.log('Telegram Webhook:', JSON.stringify(update, null, 2));
 
-        if (update.message && update.message.text && update.message.text.startsWith('/start')) {
+        if (update?.message?.text?.startsWith('/start')) {
             await handleStartCommand(update.message);
-        } else if (update.chat_join_request) {
+        } else if (update?.chat_join_request) {
             await handleJoinRequest(update.chat_join_request);
         }
-
-        res.status(200).send('ok');
     } catch (error) {
-        console.error('Webhook Error:', error);
-        res.status(200).send('ok'); // Always standard 200 to Telegram to stop retries
+        logger.error('Telegram webhook processing failed', { error: error.message });
     }
+
+    // Acknowledged after processing. Each handler is a couple of queries plus
+    // one Bot API call, comfortably inside Telegram's timeout — and responding
+    // first would make the outcome unobservable to callers and tests alike.
+    res.status(200).send('ok');
 };
 
-// 1. Identity Linking: /start <UUID>
-const handleStartCommand = async (message) => {
-    const text = message.text;
-    const telegramUserId = message.from.id.toString();
-    const telegramUsername = message.from.username;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Identity linking via `/start <userId>` deep link. */
+async function handleStartCommand(message) {
     const chatId = message.chat.id;
+    const telegramUserId = message.from.id;
+    const telegramUsername = message.from.username || null;
 
-    // Extract UUID from "/start <UUID>"
-    const parts = text.split(' ');
-    if (parts.length !== 2) {
-        return telegramService.sendMessage(chatId, 'Please use the "Connect Telegram" button from your dashboard to start.');
+    const [, userId] = message.text.trim().split(/\s+/);
+
+    if (!userId) {
+        return telegramService.sendMessage(
+            chatId,
+            'Please use the "Connect Telegram" button on your dashboard to link your account.'
+        );
+    }
+    if (!UUID_PATTERN.test(userId)) {
+        return telegramService.sendMessage(chatId, 'That connection link is not valid.');
     }
 
-    const userId = parts[1];
-
-    // Validate UUID format (basic check)
-    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-    if (!uuidRegex.test(userId)) {
-        return telegramService.sendMessage(chatId, 'Invalid connection link.');
+    const user = await db.one(`SELECT id FROM users WHERE id = $1`, [userId]);
+    if (!user) {
+        return telegramService.sendMessage(
+            chatId,
+            'Account not found. Please sign in and try connecting again.'
+        );
     }
 
-    // Verify user exists
-    const { data: user, error } = await supabase.from('users').select('id').eq('id', userId).single();
-    if (error || !user) {
-        return telegramService.sendMessage(chatId, 'User not found. Please verify your account.');
+    // A Telegram account must not be claimable by two different users.
+    const conflicting = await db.one(
+        `SELECT user_id FROM telegram_access
+          WHERE telegram_user_id = $1 AND user_id <> $2`,
+        [telegramUserId, userId]
+    );
+    if (conflicting) {
+        return telegramService.sendMessage(
+            chatId,
+            'This Telegram account is already linked to a different subscriber.'
+        );
     }
 
-    // Link Account in DB
-    const { error: upsertError } = await supabase
-        .from('telegram_access')
-        .upsert({
-            user_id: userId,
-            telegram_user_id: telegramUserId,
-            telegram_username: telegramUsername,
-            is_active: true
-        }, { onConflict: 'user_id' });
+    await db.query(
+        `INSERT INTO telegram_access (user_id, telegram_user_id, telegram_username, is_active)
+         VALUES ($1, $2, $3, TRUE)
+         ON CONFLICT (user_id) DO UPDATE
+            SET telegram_user_id  = EXCLUDED.telegram_user_id,
+                telegram_username = EXCLUDED.telegram_username,
+                is_active         = TRUE`,
+        [userId, telegramUserId, telegramUsername]
+    );
 
-    if (upsertError) {
-        console.error('Link Error:', upsertError);
-        return telegramService.sendMessage(chatId, 'Failed to link account. Please try again.');
-    }
+    // Mirror onto users so Telegram sign-in works for this account afterwards.
+    await db.query(
+        `UPDATE users
+            SET telegram_user_id = $2, telegram_username = $3
+          WHERE id = $1 AND (telegram_user_id IS NULL OR telegram_user_id = $2)`,
+        [userId, telegramUserId, telegramUsername]
+    );
 
-    await telegramService.sendMessage(chatId, '✅ Account Linked! You can now request to join the private channel.');
-};
+    logger.info('Telegram account linked', { userId, telegramUserId });
+    await telegramService.sendMessage(
+        chatId,
+        '✅ Account linked. You can now request to join the private channel.'
+    );
+}
 
-// 2. Join Request Approval
-const handleJoinRequest = async (request) => {
-    const telegramUserId = request.from.id.toString();
+/** Approve or decline a channel join request based on subscription state. */
+async function handleJoinRequest(request) {
+    const telegramUserId = request.from.id;
     const chatId = request.chat.id;
 
-    // Find internal user ID from Telegram ID
-    const { data: accessRecord } = await supabase
-        .from('telegram_access')
-        .select('user_id')
-        .eq('telegram_user_id', telegramUserId)
-        .single();
+    const access = await db.one(
+        `SELECT user_id FROM telegram_access WHERE telegram_user_id = $1`,
+        [telegramUserId]
+    );
 
-    if (!accessRecord) {
-        // Unknown user
+    if (!access) {
         await telegramService.declineJoinRequest(chatId, telegramUserId);
-        await telegramService.sendMessage(telegramUserId, '❌ You are not linked. Please go to your dashboard and click "Connect Telegram" first.');
+        await telegramService.sendMessage(
+            telegramUserId,
+            '❌ Your Telegram account is not linked. Open your dashboard and click "Connect Telegram" first.'
+        );
         return;
     }
 
-    // Check active subscription
-    try {
-        const sub = await subscriptionService.getActiveSubscription(accessRecord.user_id);
+    // getActiveSubscription already filters on status and end_date, and returns
+    // null rather than throwing when there is none — the old PGRST116 branch
+    // that used to handle that no longer exists.
+    const subscription = await subscriptionService.getActiveSubscription(access.user_id);
 
-        if (sub && sub.status === 'active') {
-            await telegramService.approveJoinRequest(chatId, telegramUserId);
-            await telegramService.sendMessage(telegramUserId, '🎉 Request Approved! Welcome to the premium channel.');
-
-            // Mark as joined in DB (optional, but good for tracking)
-            await supabase.from('telegram_access').update({ joined_at: new Date() }).eq('telegram_user_id', telegramUserId);
-        } else {
-            await telegramService.declineJoinRequest(chatId, telegramUserId);
-            await telegramService.sendMessage(telegramUserId, '⚠️ Your subscription is not active. Please subscribe to join.');
-        }
-    } catch (err) {
-        console.error('Sub check error:', err);
-        // Fail safe: verify sub existence
-        if (err.message === 'Plan not found' || err.code === 'PGRST116') { // not found
-            await telegramService.declineJoinRequest(chatId, telegramUserId);
-            await telegramService.sendMessage(telegramUserId, '⚠️ No active subscription found.');
-        }
+    if (!subscription) {
+        await telegramService.declineJoinRequest(chatId, telegramUserId);
+        await telegramService.sendMessage(
+            telegramUserId,
+            '⚠️ No active subscription found. Please subscribe to join.'
+        );
+        return;
     }
-};
+
+    await telegramService.approveJoinRequest(chatId, telegramUserId);
+    await telegramService.sendMessage(
+        telegramUserId,
+        '🎉 Request approved — welcome to the premium channel.'
+    );
+
+    await db.query(
+        `UPDATE telegram_access
+            SET joined_at = now(), status = 'joined'
+          WHERE telegram_user_id = $1`,
+        [telegramUserId]
+    );
+}

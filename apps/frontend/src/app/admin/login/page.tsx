@@ -2,11 +2,11 @@
 
 import { useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { createClient } from '@supabase/supabase-js';
 import { Button } from '../../../components/ui/Button';
 import { toast } from 'react-hot-toast';
 import { Loader2, ShieldCheck, AlertTriangle } from 'lucide-react';
 import { useAuthStore } from '../../../store/auth.store';
+import { apiErrorMessage } from '../../../services/api';
 
 export default function AdminLogin() {
     const [email, setEmail] = useState('');
@@ -15,45 +15,29 @@ export default function AdminLogin() {
     const router = useRouter();
     const searchParams = useSearchParams();
     const error = searchParams.get('error');
-    const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!);
-    const { setAuth } = useAuthStore();
+    const login = useAuthStore((state) => state.login);
+    const logout = useAuthStore((state) => state.logout);
 
     const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
         setIsLoading(true);
 
         try {
-            const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-                email,
-                password,
-            });
+            // One authenticated call decides both identity and role. This used
+            // to be a sign-in followed by a direct `admins` table read from the
+            // browser using the public anon key.
+            const user = await login({ email, password });
 
-            if (authError) throw authError;
-
-            if (authData.user) {
-                const { data: adminRecord, error: adminError } = await supabase
-                    .from('admins')
-                    .select('user_id')
-                    .eq('user_id', authData.user.id)
-                    .single();
-
-                if (adminError || !adminRecord) {
-                    await supabase.auth.signOut();
-                    toast.error('Access denied: Insufficient privileges.');
-                } else {
-                    setAuth({
-                        id: authData.user.id,
-                        email: authData.user.email!,
-                        role: 'admin' as const
-                    }, authData.session?.access_token || '');
-
-                    toast.success('Welcome back, Commander');
-                    router.push('/admin/dashboard');
-                }
+            if (user.role !== 'admin') {
+                await logout();
+                toast.error('Access denied: insufficient privileges.');
+                return;
             }
-        } catch (err: unknown) {
-            const error = err as { message?: string };
-            toast.error(error.message || 'Login failed');
+
+            toast.success('Welcome back, Commander');
+            router.push('/admin/dashboard');
+        } catch (err) {
+            toast.error(apiErrorMessage(err, 'Login failed'));
         } finally {
             setIsLoading(false);
         }

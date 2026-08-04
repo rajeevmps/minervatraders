@@ -1,48 +1,52 @@
 import { useState, useEffect } from 'react';
-import axios from 'axios';
+import type { ApiResponse, Subscription } from '@repo/types';
+import api from '../services/api';
 import { useAuthStore } from '../store/auth.store';
 
-interface Subscription {
-    id: string;
-    status: string;
-    start_date: string;
-    end_date: string;
-    plan: {
-        name: string;
-    };
-    telegram_invite_link?: string;
-}
-
+/**
+ * The signed-in user's active subscription, or null.
+ *
+ * Uses the shared `api` client rather than a bare axios call with a token read
+ * from the store. That token was persisted in localStorage and never refreshed,
+ * so this hook silently started failing 15 minutes after sign-in.
+ */
 export function useSubscription() {
-    const { token, isAuthenticated } = useAuthStore();
-    const [isLoading, setIsLoading] = useState(true);
+    const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+    const isAuthLoading = useAuthStore((state) => state.isLoading);
+
     const [subscription, setSubscription] = useState<Subscription | null>(null);
+    const [isLoading, setIsLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        if (!isAuthenticated || !token) {
+        // Wait for session restoration before concluding the user is anonymous.
+        if (isAuthLoading) return;
+
+        if (!isAuthenticated) {
+            setSubscription(null);
             setIsLoading(false);
             return;
         }
 
-        const fetchSubscription = async () => {
+        let cancelled = false;
+
+        (async () => {
+            setIsLoading(true);
             try {
-                const subResponse = await axios.get(
-                    `${process.env.NEXT_PUBLIC_API_URL}/subscriptions`,
-                    { headers: { Authorization: `Bearer ${token}` } }
-                );
-
-                if (subResponse.data && !subResponse.data.message) {
-                    setSubscription(subResponse.data);
-                }
-            } catch (error) {
-                console.error('Subscription Fetch Error:', error);
+                const response = await api.get<ApiResponse<Subscription>>('/subscriptions');
+                // `data` is absent rather than null when there is no subscription.
+                if (!cancelled) setSubscription(response.data.data ?? null);
+            } catch {
+                if (!cancelled) setError('Could not load your subscription');
             } finally {
-                setIsLoading(false);
+                if (!cancelled) setIsLoading(false);
             }
+        })();
+
+        return () => {
+            cancelled = true;
         };
+    }, [isAuthenticated, isAuthLoading]);
 
-        fetchSubscription();
-    }, [isAuthenticated, token]);
-
-    return { subscription, isLoading };
+    return { subscription, isLoading, error };
 }

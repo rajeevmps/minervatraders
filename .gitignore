@@ -2,7 +2,7 @@
 node_modules
 pnpm-lock.yaml
 yarn.lock
-package-lock.json
+# package-lock.json is intentionally tracked: `npm ci` in CI requires it.
 
 # Environment Variables
 .env
@@ -39,6 +39,9 @@ Thumbs.db
 
 # Testing
 coverage
+
+# Project-local portable Postgres (binaries + cluster are machine-specific)
+.postgres
 
 # Vercel
 .vercel

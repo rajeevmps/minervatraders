@@ -10,8 +10,7 @@
     },
     "dependencies": {
         "@radix-ui/react-accordion": "^1.2.12",
-        "@supabase/auth-helpers-nextjs": "^0.15.0",
-        "@supabase/supabase-js": "^2.39.0",
+        "@repo/types": "*",
         "axios": "^1.6.0",
         "clsx": "^2.1.1",
         "framer-motion": "^10.0.0",
@@ -21,8 +20,7 @@
         "react-dom": "^18",
         "react-hot-toast": "^2.4.1",
         "tailwind-merge": "^2.6.0",
-        "zustand": "^4.5.0",
-        "@repo/types": "*"
+        "zustand": "^4.5.0"
     },
     "devDependencies": {
         "@types/node": "^20",

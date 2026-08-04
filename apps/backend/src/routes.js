@@ -9,6 +9,7 @@ const orderRoutes = require('./modules/order/order.routes');
 const paymentRoutes = require('./modules/payment/razorpay.routes');
 const telegramRoutes = require('./modules/telegram/telegram.routes');
 const adminRoutes = require('./modules/admin/admin.routes');
+const settingsRoutes = require('./modules/settings/settings.routes');
 
 router.use('/auth', authRoutes);
 router.use('/users', userRoutes);
@@ -18,5 +19,6 @@ router.use('/orders', orderRoutes);
 router.use('/payments', paymentRoutes);
 router.use('/telegram', telegramRoutes);
 router.use('/admin', adminRoutes);
+router.use('/settings', settingsRoutes);
 
 module.exports = router;

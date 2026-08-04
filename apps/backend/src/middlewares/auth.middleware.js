@@ -1,135 +1,109 @@
-const jwt = require('jsonwebtoken');
-const { supabaseJwtSecret } = require('../config/env');
-const { supabase } = require('../config/db');
+const db = require('../config/db');
+const tokenService = require('../modules/auth/token.service');
+const { sendResponse } = require('../utils/responseHelper');
 
 /**
- * Middleware to verify Supabase JWT and sync user to public table.
- * 1. Checks for Bearer token.
- * 2. Verifies token (Locally or via Supabase).
- * 3. Syncs user to public.users table (UPSERT) to ensure FK integrity.
- * 4. Attaches user to req.user.
+ * Authentication and authorisation middleware.
+ *
+ * Replaces the Supabase JWT flow. Two behavioural fixes worth noting:
+ *
+ *   1. The old implementation swallowed every jwt.verify failure except
+ *      expiry and fell through to a remote Supabase lookup — including
+ *      BAD SIGNATURE. Verification is now strict: an invalid token is rejected.
+ *   2. Admin status came from a separate `admins` table, queried by two
+ *      near-identical middlewares (`requireAdmin` and `adminOnly`) and also
+ *      read straight from the browser with the public anon key. It is now
+ *      `users.role`, resolved server-side only.
  */
+
+/** Verify the bearer access token and populate req.user. */
 exports.requireAuth = async (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({
-            success: false,
-            message: 'Authorization header missing or invalid',
-            error: { code: 'AUTH_HEADER_MISSING' },
+        return sendResponse(res, 401, false, 'Authorization header missing or invalid', null, {
+            code: 'AUTH_HEADER_MISSING',
         });
     }
 
-    const token = authHeader.split(' ')[1];
-
+    const token = authHeader.slice('Bearer '.length).trim();
     if (!token) {
-        return res.status(401).json({
-            success: false,
-            message: 'Bearer token missing',
-            error: { code: 'TOKEN_MISSING' },
+        return sendResponse(res, 401, false, 'Bearer token missing', null, {
+            code: 'TOKEN_MISSING',
         });
     }
 
     try {
-        let user;
+        const decoded = tokenService.verifyAccessToken(token);
 
-        // Strategy 1: Local Verification (Fast)
-        if (supabaseJwtSecret) {
-            try {
-                const decoded = jwt.verify(token, supabaseJwtSecret);
-                // Transform decoded JWT to match Supabase user shape if needed,
-                // but usually the important parts for us are 'sub', 'email', 'role'.
-                user = {
-                    id: decoded.sub,
-                    email: decoded.email,
-                    role: decoded.role,
-                    user_metadata: decoded.user_metadata,
-                    app_metadata: decoded.app_metadata,
-                };
-            } catch (jwtError) {
-                // If local verify fails (expired, etc.), we can try API or just fail.
-                // Usually safe to just fail or let the fallback run if strictly needed.
-                // For 'TokenExpiredError', we should definitely fail.
-                if (jwtError.name === 'TokenExpiredError') {
-                    throw jwtError;
-                }
-                // allow fallback
-            }
-        }
-
-        // Strategy 2: Supabase API Verification (Fallback or Primary if no secret)
-        if (!user) {
-            const {
-                data: { user: apiUser },
-                error,
-            } = await supabase.auth.getUser(token);
-            if (error || !apiUser) {
-                throw new Error('Invalid token');
-            }
-            user = apiUser;
-        }
-
-        // User Sync moved to Supabase DB Trigger (handle_new_user on auth.users).
-        // This removes the critical performance bottleneck of upserting on every API request.
+        // Both `sub` and `id` are populated: controllers across the codebase
+        // read one or the other, and they must stay interchangeable.
         req.user = {
-            sub: user.id, // Standardize on 'sub' for consistency
-            id: user.id,
-            email: user.email,
-            role: user.role, // 'authenticated' usually
-            // We can also fetch the custom role from public.users if needed here
+            sub: decoded.sub,
+            id: decoded.sub,
+            email: decoded.email,
+            role: decoded.role,
         };
 
-        next();
+        return next();
     } catch (error) {
-        // console.error('Auth Error:', error.message);
         const code = error.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'INVALID_TOKEN';
-        return res.status(401).json({
-            success: false,
-            message: 'Not authorized',
-            error: { code, details: error.message },
+        return sendResponse(res, 401, false, 'Not authorized', null, { code });
+    }
+};
+
+/**
+ * Require an admin.
+ *
+ * Re-reads the role from the database rather than trusting the token claim, so
+ * revoking admin rights takes effect immediately instead of lingering for the
+ * remainder of the access-token lifetime. Admin traffic is low volume, so the
+ * extra query is a worthwhile trade for immediate revocation.
+ */
+exports.requireAdmin = async (req, res, next) => {
+    if (!req.user || !req.user.id) {
+        return sendResponse(res, 401, false, 'User not authenticated', null, {
+            code: 'NOT_AUTHENTICATED',
         });
     }
-};
 
-exports.authorize = (...roles) => {
-    return (req, res, next) => {
-        // This relies on the role being present on req.user.
-        // Note: Supabase JWT role is usually 'authenticated'.
-        // Real role usually lives in app_metadata or public.admins table.
+    try {
+        const row = await db.one(`SELECT role, is_active FROM users WHERE id = $1`, [req.user.id]);
 
-        // Check for admin/special roles here if needed.
-        // For now, we pass if any role matches or if no roles required.
-        if (roles.length > 0 && !roles.includes(req.user.role)) {
-            // Basic check failed.
-            // TODO: Implement DB-based role check for 'admin' if needed.
-            // For now, return error.
-            return res.status(403).json({
-                message: `User role ${req.user.role} is not authorized`,
+        if (!row || !row.is_active || row.role !== 'admin') {
+            return sendResponse(res, 403, false, 'Access denied: administrators only', null, {
+                code: 'FORBIDDEN',
             });
         }
-        next();
-    };
-};
 
-exports.requireAdmin = async (req, res, next) => {
-    try {
-        if (!req.user || !req.user.id) {
-            return res.status(401).json({ message: 'User not authenticated' });
-        }
-
-        const { data: admin, error } = await supabase
-            .from('admins')
-            .select('user_id')
-            .eq('user_id', req.user.id)
-            .single();
-
-        if (error || !admin) {
-            return res.status(403).json({ message: 'Access denied: Admins only' });
-        }
-
-        next();
+        req.user.role = row.role;
+        return next();
     } catch (error) {
-        console.error('Admin Check Error:', error);
-        return res.status(500).json({ message: 'Internal Server Error during admin check' });
+        return next(error);
     }
 };
+
+/**
+ * Optional auth: populate req.user when a valid token is present, but never
+ * reject. For endpoints that render differently for signed-in visitors.
+ */
+exports.optionalAuth = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return next();
+
+    try {
+        const decoded = tokenService.verifyAccessToken(authHeader.slice('Bearer '.length).trim());
+        req.user = {
+            sub: decoded.sub,
+            id: decoded.sub,
+            email: decoded.email,
+            role: decoded.role,
+        };
+    } catch {
+        // A bad token on an optional route is simply treated as anonymous.
+    }
+    return next();
+};
+
+// `authorize(...roles)` previously existed here with zero call sites and an
+// unimplemented TODO where its role lookup belonged. Use requireAdmin instead.

@@ -1,173 +1,162 @@
 const axios = require('axios');
-const { telegramBotToken } = require('../../config/env');
-const { supabase } = require('../../config/db');
+const db = require('../../config/db');
+const settingsService = require('../settings/settings.service');
+const logger = require('../../utils/logger');
+const { telegramBotToken, telegramChannelId } = require('../../config/env');
 
+/**
+ * Telegram Bot API client.
+ *
+ * Configuration resolves database settings first, then environment variables,
+ * so an admin can change the channel at runtime while a fresh deploy still
+ * works from env alone. The previous version threw if the DB rows were absent
+ * even when the env vars were set.
+ */
+
+const CACHE_TTL_MS = 10 * 60 * 1000;
 let configCache = { data: null, expiry: 0 };
-const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes
 
-// Helper to get Telegram Config with In-Memory Caching
-const getTelegramConfig = async () => {
+async function getTelegramConfig() {
     if (configCache.data && Date.now() < configCache.expiry) {
         return configCache.data;
     }
 
-    const { data, error } = await supabase
-        .from('system_settings')
-        .select('*')
-        .in('key', ['TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHANNEL_ID']);
+    const stored = await settingsService.getRawSettings([
+        'TELEGRAM_BOT_TOKEN',
+        'TELEGRAM_CHANNEL_ID',
+    ]);
 
-    if (error) throw error;
+    const config = {
+        botToken: stored.TELEGRAM_BOT_TOKEN || telegramBotToken,
+        channelId: stored.TELEGRAM_CHANNEL_ID || telegramChannelId,
+    };
 
-    const config = {};
-    data.forEach((item) => {
-        config[item.key] = item.value;
-    });
-
-    if (!config.TELEGRAM_BOT_TOKEN || !config.TELEGRAM_CHANNEL_ID) {
-        throw new Error('Telegram configuration missing in system settings');
-    }
-
-    configCache.data = config;
-    configCache.expiry = Date.now() + CACHE_TTL_MS;
-
-    return config;
-};
-
-// Expose a function to invalidate cache if an admin changes settings
-exports.invalidateConfigCache = () => {
-    configCache.expiry = 0;
-};
-
-// Helper to send message
-const sendMessage = async (chatId, text) => {
-    try {
-        const config = await getTelegramConfig();
-        const TELEGRAM_API_URL = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
-
-        await axios.post(`${TELEGRAM_API_URL}/sendMessage`, { chat_id: chatId, text });
-        console.log(`Sending message to ${chatId}: ${text}`);
-    } catch (error) {
-        console.error('Telegram Send Error:', error.message);
-    }
-};
-
-exports.generateInviteLink = async (userId) => {
-    const EXPIRE_MINUTES = 24 * 60; // 24 hours expiry
-    const expireTimestamp = Math.floor(Date.now() / 1000) + EXPIRE_MINUTES * 60;
-
-    try {
-        const config = await getTelegramConfig();
-        const TELEGRAM_API_URL = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`; // Re-defined per request context
-
-        const response = await axios.post(`${TELEGRAM_API_URL}/createChatInviteLink`, {
-            chat_id: config.TELEGRAM_CHANNEL_ID,
-            member_limit: 1, // One use only
-            expire_date: expireTimestamp, // Expire in 10 minutes
-        });
-
-        const inviteLink = response.data.result.invite_link;
-
-        // 2. Log access grant to DB with expiry
-        const { error: insertError } = await supabase.from('telegram_access').upsert(
-            {
-                user_id: userId,
-                status: 'invited',
-                invite_link: inviteLink,
-                expires_at: new Date(expireTimestamp * 1000).toISOString(),
-            },
-            { onConflict: 'user_id' }
+    if (!config.botToken || !config.channelId) {
+        const error = new Error(
+            'Telegram is not configured. Set TELEGRAM_BOT_TOKEN and TELEGRAM_CHANNEL_ID.'
         );
-
-        if (insertError) {
-            console.error('DB Insert Error:', insertError);
-            throw new Error('Failed to save invite link to database');
-        }
-
-        return inviteLink;
-    } catch (error) {
-        console.error('Telegram Invite Gen Error:', error.response?.data || error.message);
-        throw new Error('Failed to generate Telegram invite');
-    }
-};
-
-// Re-defined per request to ensure latest config is used
-const getTelegramApiUrl = (token) => `https://api.telegram.org/bot${token}`;
-
-exports.revokeAccess = async (telegramUserId) => {
-    try {
-        const config = await getTelegramConfig();
-        const TELEGRAM_API_URL = getTelegramApiUrl(config.TELEGRAM_BOT_TOKEN);
-
-        await axios.post(`${TELEGRAM_API_URL}/banChatMember`, {
-            chat_id: config.TELEGRAM_CHANNEL_ID,
-            user_id: telegramUserId,
-            until_date: Math.floor(Date.now() / 1000) + 60, // Ban for 1 min just to kick, or simple kickChatMember
-        });
-
-        // Update DB
-        await supabase
-            .from('telegram_access')
-            .update({ status: 'revoked' })
-            .eq('telegram_user_id', telegramUserId);
-    } catch (error) {
-        console.error('Telegram Revoke Error:', error.message);
-    }
-};
-
-exports.sendMessage = sendMessage;
-
-exports.approveJoinRequest = async (chatId, userId) => {
-    try {
-        const config = await getTelegramConfig();
-        const TELEGRAM_API_URL = getTelegramApiUrl(config.TELEGRAM_BOT_TOKEN);
-
-        await axios.post(`${TELEGRAM_API_URL}/approveChatJoinRequest`, {
-            chat_id: chatId,
-            user_id: userId,
-        });
-        console.log(`Approved join request for ${userId}`);
-    } catch (error) {
-        console.error('Approve Join Error:', error.message);
+        error.code = 'TELEGRAM_NOT_CONFIGURED';
+        error.status = 503;
         throw error;
     }
+
+    configCache = { data: config, expiry: Date.now() + CACHE_TTL_MS };
+    return config;
+}
+
+exports.invalidateConfigCache = () => {
+    configCache = { data: null, expiry: 0 };
+};
+
+/** POST to the Bot API, unwrapping Telegram's {ok, result} envelope. */
+async function callTelegram(method, payload) {
+    const { botToken } = await getTelegramConfig();
+    try {
+        const response = await axios.post(
+            `https://api.telegram.org/bot${botToken}/${method}`,
+            payload,
+            { timeout: 10_000 }
+        );
+        if (!response.data?.ok) {
+            throw new Error(response.data?.description || `Telegram ${method} failed`);
+        }
+        return response.data.result;
+    } catch (error) {
+        // Never let the bot token reach a log line via the request URL.
+        const description = error.response?.data?.description || error.message;
+        logger.error(`Telegram ${method} failed`, { description });
+        const wrapped = new Error(`Telegram ${method} failed: ${description}`);
+        wrapped.code = 'TELEGRAM_API_ERROR';
+        throw wrapped;
+    }
+}
+
+const INVITE_TTL_SECONDS = 24 * 60 * 60;
+
+exports.generateInviteLink = async (userId) => {
+    const { channelId } = await getTelegramConfig();
+    const expiresAtUnix = Math.floor(Date.now() / 1000) + INVITE_TTL_SECONDS;
+
+    const result = await callTelegram('createChatInviteLink', {
+        chat_id: channelId,
+        member_limit: 1,
+        expire_date: expiresAtUnix,
+    });
+
+    const inviteLink = result.invite_link;
+
+    // telegram_access.user_id is UNIQUE, so this upsert is now genuinely
+    // idempotent — previously no such constraint existed and the ON CONFLICT
+    // target did not match any index.
+    await db.query(
+        `INSERT INTO telegram_access (user_id, status, invite_link, expires_at)
+         VALUES ($1, 'invited', $2, to_timestamp($3))
+         ON CONFLICT (user_id) DO UPDATE
+            SET status      = 'invited',
+                invite_link = EXCLUDED.invite_link,
+                expires_at  = EXCLUDED.expires_at,
+                is_active   = TRUE`,
+        [userId, inviteLink, expiresAtUnix]
+    );
+
+    return inviteLink;
+};
+
+/**
+ * Remove a user from the channel.
+ *
+ * Errors propagate. The previous implementation swallowed them, so a failed
+ * removal looked like a success and an expired subscriber silently kept access.
+ */
+exports.revokeAccess = async (telegramUserId) => {
+    const { channelId } = await getTelegramConfig();
+
+    // Ban then immediately unban: this kicks the member while still allowing
+    // them to rejoin later if they renew. A plain ban would lock them out.
+    await callTelegram('banChatMember', {
+        chat_id: channelId,
+        user_id: telegramUserId,
+        until_date: Math.floor(Date.now() / 1000) + 35,
+    });
+    await callTelegram('unbanChatMember', {
+        chat_id: channelId,
+        user_id: telegramUserId,
+        only_if_banned: true,
+    });
+
+    await db.query(
+        `UPDATE telegram_access
+            SET status = 'revoked', is_active = FALSE
+          WHERE telegram_user_id = $1`,
+        [telegramUserId]
+    );
+
+    logger.info('Revoked Telegram access', { telegramUserId });
+};
+
+exports.sendMessage = async (chatId, text) => {
+    try {
+        await callTelegram('sendMessage', { chat_id: chatId, text });
+    } catch (error) {
+        // Notifications are best-effort: a user who blocked the bot must not
+        // fail the surrounding business operation.
+        logger.warn('Telegram notification not delivered', { chatId, error: error.message });
+    }
+};
+
+exports.approveJoinRequest = async (chatId, userId) => {
+    await callTelegram('approveChatJoinRequest', { chat_id: chatId, user_id: userId });
+    logger.info('Approved Telegram join request', { userId });
 };
 
 exports.declineJoinRequest = async (chatId, userId) => {
     try {
-        const config = await getTelegramConfig();
-        const TELEGRAM_API_URL = getTelegramApiUrl(config.TELEGRAM_BOT_TOKEN);
-
-        await axios.post(`${TELEGRAM_API_URL}/declineChatJoinRequest`, {
-            chat_id: chatId,
-            user_id: userId,
-        });
-        console.log(`Declined join request for ${userId}`);
+        await callTelegram('declineChatJoinRequest', { chat_id: chatId, user_id: userId });
     } catch (error) {
-        console.error('Decline Join Error:', error.message);
-        // Don't throw, just log
+        logger.warn('Could not decline join request', { userId, error: error.message });
     }
 };
 
-exports.kickMember = async (chatId, userId) => {
-    try {
-        const config = await getTelegramConfig();
-        const TELEGRAM_API_URL = getTelegramApiUrl(config.TELEGRAM_BOT_TOKEN);
+exports.kickMember = (chatId, userId) => exports.revokeAccess(userId);
 
-        // Ban (kick)
-        await axios.post(`${TELEGRAM_API_URL}/banChatMember`, {
-            chat_id: chatId,
-            user_id: userId,
-            until_date: Math.floor(Date.now() / 1000) + 35, // Ban for 35 seconds (minimum allowed is 30s) just to kick them out
-        });
-
-        // Unban immediately so they can request to join again later if they renew
-        await axios.post(`${TELEGRAM_API_URL}/unbanChatMember`, {
-            chat_id: chatId,
-            user_id: userId,
-        });
-
-        console.log(`Kicked user ${userId} from ${chatId}`);
-    } catch (error) {
-        console.error('Kick Member Error:', error.message);
-    }
-};
+exports.getTelegramConfig = getTelegramConfig;
